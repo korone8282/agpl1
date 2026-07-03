@@ -21,7 +21,7 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(
 	cors({
-		origin: "https://acpl1.netlify.app",
+		origin: "https://agpl1.netlify.app",
 		credentials: true,
 	})
 );
