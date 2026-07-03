@@ -21,7 +21,7 @@ const Header = () => {
           <div className="mx-4 flex flex-col lg:flex-row gap-6 items-center justify-between">
             <div className="flex items-center space-x-4 text-xl">
               <h1 className="text-primary font-medium hover:cursor-pointer"
-                  onClick={()=>navigate("/")}>Artha Cuisine Private Limited</h1>
+                  onClick={()=>navigate("/")}>Aliments Global Private Limited</h1>
               <span className="text-sm text-muted-foreground">
                 {format(new Date(), "MMMM d, yyyy")}
               </span>
