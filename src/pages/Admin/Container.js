@@ -56,7 +56,6 @@ const Container = () => {
         setLoading(0);
       
         } catch (e) {
-          setError(1);
           console.log(e);
         }
       }
