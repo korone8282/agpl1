@@ -66,7 +66,11 @@ const Login = () => {
       
       try {
         const res = await apiConnector(GOOGLE_API,"POST",{token}),
-              userinform = res.data.existUser;
+              userinform = res.data?.existUser || res.data?.user || res.data;
+
+        if (!userinform) {
+          throw new Error("User data not found in backend response");
+        }
         
         dispatch(setcredentials(userinform));
 
