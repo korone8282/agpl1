@@ -1,0 +1,87 @@
+#navigation-container2 {
+    width: 4%;
+    transition: width 0.5s ease-in-out;
+    overflow: hidden;
+}
+
+#navigation-container2:hover{
+    width: 20%;
+    opacity: 0.8;
+    transition: width 0.5s ease-in-out;
+}
+
+#navigation-container2 + div{
+  margin-left: 60px;
+  transition: all 600ms ease-in-out;
+  /* gap: 60px; */
+}
+
+#navigation-container2:hover + div{
+  margin-left: 320px;
+  transition: all 600ms ease-in-out;
+  gap: 40px;
+}
+
+.heading {
+    transition: all 1s ease-in-out;
+    transform: rotate(270deg) translateX(-19rem) translateY(-9.5rem);
+}
+
+@media (min-width: 768px) and (max-width: 1024px){
+  .heading {
+    transform: rotate(270deg) translateX(-4rem) translateY(-9.5rem);
+  }
+}
+
+#navigation-container2:hover .heading{
+    transition: all 1s ease-in-out;
+    transform: rotate(360deg) translateX(0.2rem) translateY(1rem);
+}
+
+#navigation-container2:hover .one {
+    transition: transform opacity 600ms ease-in;
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+.one {
+    transition: tranform 800ms;
+    transform: translateX(-6rem);
+    opacity: 0;
+  }
+
+#navigation-container2:hover .two {
+    transition: transform opacity 700ms ease-in;
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+.two {
+    transition: transform 800ms;
+    transform: translateX(-6rem);
+    opacity: 0;
+  }
+
+#navigation-container2:hover .three {
+    transition: transform opacity 800ms ease-in;
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+.three {
+    transition: transform 800ms;
+    transform: translateX(-6rem);
+    opacity: 0;
+  }
+
+#navigation-container2:hover .four {
+    transition: transform opacity 900ms ease-in;
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+.four {
+    transition: transform 800ms;
+    transform: translateX(-6rem);
+    opacity: 0;
+  }

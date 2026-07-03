@@ -1,0 +1,110 @@
+
+  
+  :root {
+    --tube-percentage: 50%;
+    --tube-title: "90%";
+    --tube-color: #9198e5;
+  }
+  
+  .tube {
+    position: relative;
+    height: 250px;
+    width: 170px;
+    border: 3px solid #272822;
+    background-color: #282a1e;
+  }
+  
+  .tube::after {
+    content: "";
+    position: absolute;
+    left: -10px;
+    top: -3px;
+    width: calc(100% + 20px);
+    height: 8px;
+    border-radius: 50rem;
+    background-color: #272822;
+  }
+  
+  .tube .body {
+    position: absolute;
+    border-radius: inherit;
+    height: 100%;
+    width: 100%;
+    bottom: 0;
+    overflow: hidden;
+    z-index: 5;
+  }
+  
+  .tube .shine {
+    position: absolute;
+    left: 10%;
+    top: 0;
+    width: 10%;
+    height: 100%;
+    z-index: 90;
+    opacity: 0.2;
+  }
+  
+  .tube .shine::before,
+  .tube .shine::after {
+    content: "";
+    position: absolute;
+    background-color: #fff;
+    border-radius: 50rem;
+    top: 10%;
+    height: 40%;
+    width: 100%;
+  }
+  
+  .tube .shine::after {
+    height: 15%;
+    top: 60%;
+    bottom: 0;
+  }
+  
+  @keyframes liquid {
+    0% {
+      transform: translateX(-50%) rotate(0deg);
+    }
+    100% {
+      transform: translateX(-50%) rotate(360deg);
+    }
+  }
+  
+  .tube .liquid {
+    position: absolute;
+    width: 100%;
+    bottom: 0;
+  }
+  
+  .tube .liquid .percentage {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    z-index: 2;
+    transition: 1s;
+  }
+  
+  .tube .liquid .percentage::after,
+  .tube .liquid .percentage::before {
+    position: absolute;
+    content: "";
+    width: 230px;
+    height: 230px;
+    border-radius: 75px;
+    animation: liquid 4s infinite linear;
+    transform: translateX(-50%);
+    left: 50%;
+    top: 0;
+    background: var(--tube-color);
+    transition: 1s;
+  }
+  
+  .tube .liquid .percentage::after {
+    opacity: 0.4;
+    animation-direction: reverse;
+    border-radius: 60px;
+  }
+  
