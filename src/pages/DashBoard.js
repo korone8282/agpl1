@@ -21,7 +21,7 @@ const items = [
     {name: "Filling Data", path: "Month", section:"Filling"},
     {name: "Kitchen Data", path: "Month", section:"Kitchen"},
     {name: "Dispatch Data", path: "Month", section:"Dispatch"},
-    {name: "Daily Wastage", path: "Daily-List"},
+    {name: "Costing", path: "Costing"},
     {name: "Production Goals", path: "Production-Goal"}
   ],
   [
@@ -70,7 +70,7 @@ export const Dashboard = () => {
               animate={{ 
                 opacity: 1, 
                 y: 0,
-                height: isOpen === card.label ? ( window.innerWidth < 768 ? "27rem" : "32rem" ) : "20rem"
+                height: isOpen === card.label ? ( window.innerWidth < 768 ? "31rem" : "36rem" ) : "20rem"
               }}
               transition={{ 
                 delay: index * 0.3,
