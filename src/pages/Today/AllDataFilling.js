@@ -91,6 +91,7 @@ const AllDataFilling = () => {
   yield:"",
   yieldLoss:"",
   workersQuantity:"",
+  costing:"",
   retortCycle:"",
   pouchPerCycle:"",
   empty:"",
@@ -251,6 +252,7 @@ const AllDataFilling = () => {
           <TableHead>Pouch Produced</TableHead>
           <TableHead className="text-center" colSpan={2}>Wastage</TableHead>
           <TableHead>No. of Workers</TableHead>
+          <TableHead>Costing</TableHead>      
           <TableHead>Remarks</TableHead>
           <TableHead>Delete</TableHead>
         </TableRow>
@@ -267,6 +269,7 @@ const AllDataFilling = () => {
           <TableHead></TableHead>
           <TableHead></TableHead>
           <TableHead></TableHead>
+          <TableHead></TableHead>
         </TableRow>
       </TableHeader>
 
@@ -278,12 +281,13 @@ const AllDataFilling = () => {
             <TableCell>{row.container}</TableCell>
             <TableCell>{row.buyerName}</TableCell>
             <TableCell>{row.productName}</TableCell>
-            <TableCell>{row.batch}</TableCell>
+            <TableCell>{row.batch}</TableCell>      
             <TableCell>{row.packSize}</TableCell>
             <TableCell>{row.pouchQuantity}</TableCell>
             <TableCell>{row.empty}</TableCell>
             <TableCell>{row.filled}</TableCell>
             <TableCell>{row.workersQuantity}</TableCell>
+            <TableCell>{row.costing}</TableCell>
             <TableCell><CheckCheck className='h-6 w-6 mx-auto' color='#13c952'/></TableCell>
             <TableCell><Trash2 className='h-6 w-6' color="#e01010" onClick={()=>deleteRow(i)}/></TableCell>
           </TableRow>
@@ -363,6 +367,12 @@ const AllDataFilling = () => {
             <TableCell><Input type='number'
                  name='workersQuantity'
                  value={formData.workersQuantity}
+                 onChange={ e => inputHandler(e) }
+            ></Input> </TableCell>
+
+            <TableCell><Input type='number'
+                 name='costing'
+                 value={formData.costing}
                  onChange={ e => inputHandler(e) }
             ></Input> </TableCell>
 

@@ -23,7 +23,6 @@ import Product from './pages/Admin/Product'
 import DvN from './pages/Admin/DvN'
 import ProductionGoal from './pages/Admin/ProductionGoal'
 import Production from './pages/Admin/Production'
-import KvF from './pages/Admin/KvF'
 import Inventory from './pages/Admin/Inventory'
 import ProductData from './pages/Admin/ProductData'
 import Left from './pages/Admin/Left'
@@ -34,12 +33,10 @@ import ContainerList from './pages/Admin/ContainerList'
 import DispGraph from './pages/Admin/DispGraph'
 import FillGraph from './pages/Admin/FillGraph'
 import KitchenGraph from './pages/Admin/KitchenGraph'
-import MonthlyGraphOne from './pages/Admin/MonthlyGraphOne'
-import MonthlyGraphTwo from './pages/Admin/MonthlyGraphTwo'
-import MonthlyGraphThree from './pages/Admin/MonthlyGraphThree'
 import Graph from './pages/Admin/Graph'
 import Dispatched from './pages/Admin/Dispatched'
 import Pouch from './pages/Admin/Pouch'
+import Costing from './pages/Admin/Costing'
 import Month from './components/Month'
 import { AnimatePresence } from 'framer-motion'
 
@@ -72,9 +69,6 @@ const App = () => {
    <Route path='Create-Data-Dispatch' element={<AllDataDispatch/>} />
    <Route path='Create-Data-Filling' element={<AllDataFilling/>} />
    <Route path='UserList' element={<UsersList/>}></Route>
-   <Route path='Graph/Monthly-Dispatch' element={<MonthlyGraphOne/>}></Route>
-   <Route path='Graph/Monthly-Filling' element={<MonthlyGraphTwo/>}></Route>
-   <Route path='Graph/Monthly-Kitchen' element={<MonthlyGraphThree/>}></Route>
    <Route path='Kitchen/:month' element={<Kitchen/>} />
    <Route path='Filling/:month' element={<Filiing/>} />
    <Route path='Dispatch/:month' element={<Dispatch/>} />
@@ -85,13 +79,13 @@ const App = () => {
    <Route path='Product-Data' element={<BuyerProducts/>}></Route>
    <Route path='Day-Night' element={<DvN/>}></Route>
    <Route path='Pouch' element={<Pouch/>}></Route>
-   <Route path='Daily-List' element={<KvF/>}></Route>
    <Route path='Dispatched/Dispatch-Report' element={<DispatchReport/>}></Route>
    <Route path='Graph/Dispatch-Graph' element={<DispGraph/>}></Route>
    <Route path='Graph/Filling-Graph' element={<FillGraph/>}></Route>
    <Route path='Graph/Kitchen-Graph' element={<KitchenGraph/>}></Route>
    <Route path='Graph' element={<Graph/>}></Route>
    <Route path='Dispatched' element={<Dispatched/>}></Route>
+   <Route path='Costing' element={<Costing/>}></Route>
 </Route>
 
 <Route path='Login' element={<Login/>} />

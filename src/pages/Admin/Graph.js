@@ -3,15 +3,14 @@ import { useNavigate} from 'react-router-dom';
 
 const Graph = () => {
 
-    const arr = ["Dispatch-Graph","Filling-Graph","Kitchen-Graph","Monthly-Dispatch",
-      "Monthly-Filling","Monthly-Kitchen"];
+    const arr = ["Dispatch-Graph","Filling-Graph","Kitchen-Graph"];
 
     const navigate = useNavigate();
 
   return (
     <div>
 
-                        <div className='flex flex-wrap gap-20 sm:max-lg:gap-9 my-16 justify-center mx-22 sm:max-lg:mx-1 '>
+                        <div className='flex flex-wrap gap-40 sm:max-lg:gap-9 my-48 justify-center mx-22 sm:max-lg:mx-1 '>
                             {
                                 arr.map((val,ind)=>(
                                     <div key={ind}

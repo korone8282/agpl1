@@ -19,7 +19,7 @@ const Monthly = () => {
   const pSize = [0.125,0.13,0.175,0.2,0.22,0.225,0.25,0.3,0.35,0.375,0.4,0.45,0.5,0.6,1];
 
   const [data, setData] = useState([]);
-  const [month, setmonth] = useState(1);
+  const [month, setmonth] = useState(new Date().getMonth() + 1);
   const [loading, setLoading] = useState(1);
   const [error, setError] = useState(0);
   const [isOpen, setIsOpen] = useState(false)
@@ -113,7 +113,6 @@ const Monthly = () => {
             <TableHeader>
               <TableRow className="bg-muted/60">
                 <TableHead className="text-left">Pouch Size (Kg)</TableHead>
-                <TableHead>No. Of Batches</TableHead>
                 <TableHead>Yield (Kg)</TableHead>
                 <TableHead>Pouch Filled</TableHead>
                 <TableHead>Total (kg)</TableHead>
@@ -131,7 +130,6 @@ const Monthly = () => {
                 pSize.map((ele,index)=>(
                 <TableRow key={index} className="hover:bg-muted/50">
                   <TableCell>{ele}</TableCell>
-                  <TableCell>{data.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.packSize === ele).reduce( (accumulator, obj) => accumulator + obj.batchQuantity,0),0)}</TableCell>
                   <TableCell>{data.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.packSize === ele).reduce( (accumulator, obj) => accumulator + obj.yield*obj.batchQuantity,0),0).toFixed(2)}</TableCell>
                   <TableCell>{data.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.packSize === ele).reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0)}</TableCell>
                   <TableCell>{((ele)*data.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.packSize === ele).reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0)).toFixed(2)}</TableCell>
@@ -147,7 +145,6 @@ const Monthly = () => {
               ))}
               <TableRow className="font-medium bg-muted/50">
                 <TableCell>Total:</TableCell>
-                <TableCell>{data.reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.batchQuantity,0),0)}</TableCell>
                 <TableCell>{data.reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.yield*obj.batchQuantity,0),0).toFixed(2)}</TableCell>
                 <TableCell>{ data.reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0)}</TableCell>
                 <TableCell>{pSize.forEach(myFunction)} {sum.toFixed(2)}</TableCell>

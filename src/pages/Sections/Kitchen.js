@@ -96,6 +96,7 @@ const Kitchen = () => {
                 <TableHead>Yield(kg)</TableHead>
                 <TableHead>Production (kg)</TableHead>
                 <TableHead>No. of Workers</TableHead>
+                <TableHead>Costing</TableHead>
                 <TableHead>Cost/Pouch</TableHead>
               </TableRow>
               <TableRow className="bg-muted/40">
@@ -123,14 +124,15 @@ const Kitchen = () => {
                   <TableCell>{row.yield}</TableCell>
                   <TableCell>{(row.yield*row.batchQuantity).toFixed(2)}</TableCell>
                   <TableCell>{row.workersQuantity}</TableCell>
-                  <TableCell>{((row.workersQuantity*680)/(sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + (obj.yield*obj.batchQuantity),0))).toFixed(3)}</TableCell>
+                  <TableCell>{row.costing}</TableCell>
+                  <TableCell>{row.costing?((row.costing/(row.yield*row.batchQuantity)).toFixed(3)):(0)}</TableCell>
                 </TableRow>
               ))}
               <TableRow className="font-medium bg-muted/50">
                 <TableCell colSpan={3}>Total:</TableCell>
                 <TableCell colSpan={2}>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.batchQuantity,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + (obj.batchQuantity*obj.yield),0).toFixed(2)}</TableCell> 
-                <TableCell colSpan={2}></TableCell>
+                <TableCell colSpan={4}></TableCell>
               </TableRow>
             </TableBody>
           ) : (

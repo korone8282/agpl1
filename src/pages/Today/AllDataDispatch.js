@@ -94,6 +94,7 @@ const AllDataDispatch = () => {
   yield:"",
   yieldLoss:"",
   workersQuantity:"",
+  costing:"",
   retortCycle:"",
   pouchPerCycle:"",
   empty:"",
@@ -253,6 +254,7 @@ const AllDataDispatch = () => {
           <TableHead className="text-center" colSpan={2}>Wastage</TableHead>
           <TableHead>Box</TableHead>
           <TableHead>No. of Workers</TableHead>
+          <TableHead>Costing</TableHead>
           <TableHead>Remarks</TableHead>
           <TableHead>Delete</TableHead>
         </TableRow>
@@ -262,6 +264,7 @@ const AllDataDispatch = () => {
           <TableHead></TableHead>
           <TableHead></TableHead>
           <TableHead></TableHead>
+          <TableHead></TableHead>     
           <TableHead></TableHead>
           <TableHead></TableHead>
           <TableHead>Leakage</TableHead>
@@ -288,6 +291,7 @@ const AllDataDispatch = () => {
             <TableCell>{row.foreignMatter}</TableCell>
             <TableCell>{row.box}</TableCell>
             <TableCell>{row.workersQuantity}</TableCell>
+            <TableCell>{row.costing}</TableCell>
             <TableCell><CheckCheck className='h-6 w-6 mx-auto' color='#13c952'/></TableCell>
             <TableCell><Trash2 className='h-6 w-6' color="#e01010" onClick={()=>deleteRow(i)}/></TableCell>
           </TableRow>
@@ -374,6 +378,12 @@ const AllDataDispatch = () => {
             <TableCell><Input type='number'
                  name='workersQuantity'
                  value={formData.workersQuantity}
+                 onChange={ e => inputHandler(e) }
+            ></Input> </TableCell>
+
+            <TableCell><Input type='number'
+                 name='costing'
+                 value={formData.costing}
                  onChange={ e => inputHandler(e) }
             ></Input> </TableCell>
 

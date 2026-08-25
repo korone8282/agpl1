@@ -46,10 +46,10 @@ const Buyer = () => {
         updatedName:""
       })
     }
-  }, [isSubmitSuccessful,reset,categories]);
+  }, []);
 
 
-
+console.log("ijj",categories)
 async function handleDelete(){
   try {
     

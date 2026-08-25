@@ -99,6 +99,7 @@ const Dispatch = () => {
                 <TableHead className="text-center" colSpan={2}>Wastage</TableHead>
                 <TableHead>Box</TableHead>
                 <TableHead>No. of Workers</TableHead>
+                <TableHead>Costing</TableHead>
                 <TableHead>Cost/Pouch</TableHead>
               </TableRow>
               <TableRow className="bg-muted/40">
@@ -114,7 +115,9 @@ const Dispatch = () => {
                 <TableHead></TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
-              </TableRow>
+                <TableHead></TableHead>
+                <TableHead></TableHead>
+                </TableRow>
             </TableHeader>
 
         {   
@@ -134,7 +137,8 @@ const Dispatch = () => {
                   <TableCell>{row.foreignMatter}</TableCell>
                   <TableCell>{row.box}</TableCell>
                   <TableCell>{row.workersQuantity}</TableCell>
-                  <TableCell>{((row.workersQuantity*680)/(sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0))).toFixed(3)}</TableCell>
+                  <TableCell>{row.costing}</TableCell>
+                  <TableCell>{row.costing?((row.costing/row.pouchPacked).toFixed(3)):(0)}</TableCell>
                 </TableRow>
               ))}
               <TableRow className="font-medium bg-muted/50">
@@ -143,7 +147,7 @@ const Dispatch = () => {
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.leaked,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.foreignMatter,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.box,0)}</TableCell>
-                <TableCell colSpan={2}></TableCell>
+                <TableCell colSpan={4}></TableCell>
               </TableRow>
             </TableBody>
           ) : (

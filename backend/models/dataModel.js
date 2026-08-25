@@ -48,6 +48,9 @@ const dataSchema = new mongoose.Schema({
         workersQuantity:{
             type: Number,
         },
+        costing:{
+            type: Number,
+        },
         retortCycle:{
             type: Number,
             default:0,

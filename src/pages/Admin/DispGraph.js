@@ -16,7 +16,7 @@ const DispGraph = () => {
 
     const {userinfo} = useSelector(state => state.auth);
 
-    const [month, setmonth] = useState(1);
+    const [month, setmonth] = useState(new Date().getMonth() + 1);
     const [loading, setLoading] = useState(1);
     const [error, setError] = useState(0);
     const [arr,setArr] = useState([]);
@@ -48,11 +48,19 @@ const DispGraph = () => {
 
             res.data.data.forEach((e,i) => {
               const num =  e.filter(obj => obj.sectionMain === 'Dispatch').reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0);
-              const worker =  e.filter(obj => obj.sectionMain === 'Dispatch').reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj,index) => accumulator + (index===0?obj.workersQuantity:0),0),0);
+              const costing = (() => {
+                // Find the first Dispatch section
+                const dispatchSection = e.find(obj => obj.sectionMain === 'Dispatch');
+                if (dispatchSection && dispatchSection.dataList.length > 0) {
+                  // Take the costing from the first row only (not the sum)
+                  return dispatchSection.dataList[0].costing || 0;
+                }
+                return 0;
+              })();
               arr.push({
                 "name":i+1,
                 "Pouches Packed":num,
-                "Costing": (worker?(((worker*680)/num)*10000):0)
+                "Costing": costing?(costing/num):0
               })
             });
               
@@ -72,7 +80,7 @@ const DispGraph = () => {
          <div>
 
 <div className='flex flex-col my-6 justify-center mx-5'>
-          <h2 className="text-xl font-semibold">Monthly Data For <span className='text-primary'>{months[month-1].month}</span> </h2>
+          <h2 className="text-xl font-semibold">Monthly Data For<span className='text-primary'>{months[month-1].month}</span> </h2>
 
           <div className="flex items-center gap-2 bg-card">
      <Popover open={isOpen} onOpenChange={setIsOpen}>

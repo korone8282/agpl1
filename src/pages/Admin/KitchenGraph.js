@@ -16,7 +16,7 @@ const KitchenGraph = () => {
 
     const {userinfo} = useSelector(state => state.auth);
 
-    const [month, setmonth] = useState(1);
+    const [month, setmonth] = useState(new Date().getMonth() + 1);
     const [loading, setLoading] = useState(1);
     const [error, setError] = useState(0);
     const [arr,setArr] = useState([]);
@@ -48,12 +48,19 @@ const KitchenGraph = () => {
 
                 res.data.data.forEach((e,i) => {
                   const num =  e.filter(obj => obj.sectionMain === 'Kitchen').reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + (obj.batchQuantity*obj.yield),0),0);
-                  const worker =  e.filter(obj => obj.sectionMain === 'Kitchen').reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj,index) => accumulator + (index===0?obj.workersQuantity:0),0),0);
-
+                  const costing = (() => {
+                    // Find the first Dispatch section
+                    const dispatchSection = e.find(obj => obj.sectionMain === 'Dispatch');
+                    if (dispatchSection && dispatchSection.dataList.length > 0) {
+                      // Take the costing from the first row only (not the sum)
+                      return dispatchSection.dataList[0].costing || 0;
+                    }
+                    return 0;
+                  })();
                   arr.push({
                     "name":i+1,
                     "Production":num,
-                    "Costing": (worker?(((worker*680)/num)*10000):0)
+                    "Costing": costing?(costing/num):0
                   })
                 });
   

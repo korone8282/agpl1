@@ -61,7 +61,7 @@ const ContainerList = () => {
           getData();
 
     }, [userinfo.token,info]);
-    
+    console.log("hi",arr,array)
   return (
     <div>
       {
