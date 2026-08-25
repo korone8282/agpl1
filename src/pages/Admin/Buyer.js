@@ -46,7 +46,7 @@ const Buyer = () => {
         updatedName:""
       })
     }
-  }, []);
+  }, [isSubmitSuccessful,reset]);
 
 async function handleDelete(){
   try {
