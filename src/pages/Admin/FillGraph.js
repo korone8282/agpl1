@@ -46,24 +46,19 @@ const FillGraph = () => {
 
                 const res = await apiConnector(`${GRAPH_URL}/${month}`,"GET",null,{Authorization: `Bearer ${userinfo.token}`});
   
-                res.data.data.forEach((e,i) => {
-                  const num =  e.filter(obj => obj.sectionMain === 'Filling').reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0);
-                  const costing = (() => {
-                    // Find the first Dispatch section
-                    const dispatchSection = e.find(obj => obj.sectionMain === 'Dispatch');
-                    if (dispatchSection && dispatchSection.dataList.length > 0) {
-                      // Take the costing from the first row only (not the sum)
-                      return dispatchSection.dataList[0].costing || 0;
-                    }
-                    return 0;
-                  })();
-                  arr.push({
+                const next = res.data.data.map((e,i) => {
+                  const fillingDocs = e.filter(obj => obj.sectionMain === 'Filling');
+                  const num = fillingDocs.reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0);
+                  const workers = fillingDocs.reduce((acc,obj)=> acc+obj.dataList.reduce( (accumulator, obj,index) => accumulator + (index===0?obj.workersQuantity:0),0),0);
+                  const rate = num ? ((workers * 900) / num) : 0;
+                  return {
                     "name":i+1,
                     "Pouches Filled":num,
-                    "Costing": costing?(costing/num):0
-                  })
+                    // *10000 so line is visible on shared Y-axis; tooltip divides back
+                    "Costing": rate * 10000
+                  };
                 });
-
+                setArr(next);
           setLoading(0);
       
           } catch (e) {
@@ -73,7 +68,7 @@ const FillGraph = () => {
         }
 
         getData();
-       }, [months,userinfo.token,month,arr]);
+       }, [userinfo.token, month]);
 
   return (
     <PageTransition>

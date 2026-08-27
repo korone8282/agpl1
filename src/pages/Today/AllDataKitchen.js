@@ -76,7 +76,6 @@ const AllDataKitchen = () => {
     yield:"",
     yieldLoss:"",
     workersQuantity:"",
-    costing:"",
     retortCycle:"",
     pouchPerCycle:"",
     empty:"",
@@ -222,7 +221,6 @@ const AllDataKitchen = () => {
           <TableHead>No. Of Batch</TableHead>
           <TableHead>Yield (kg)</TableHead>
           <TableHead>No. of Workers</TableHead>
-          <TableHead>Costing</TableHead>
           <TableHead>Remarks</TableHead>
           <TableHead>Delete</TableHead>
         </TableRow>
@@ -238,7 +236,6 @@ const AllDataKitchen = () => {
             <TableCell>{row.batchQuantity}</TableCell>
             <TableCell>{row.yield}</TableCell>
             <TableCell>{row.workersQuantity}</TableCell>
-            <TableCell>{row.costing}</TableCell>
             <TableCell><CheckCheck className='h-6 w-6 mx-auto' color='#13c952'/></TableCell>
             <TableCell><Trash2 className='h-6 w-6' color="#e01010" onClick={()=>deleteRow(i)}/></TableCell>
           </TableRow>
@@ -291,17 +288,10 @@ const AllDataKitchen = () => {
                  onChange={ e => inputHandler(e) }
             ></Input> </TableCell>
 
-            <TableCell><Input type='number'
-                 name='costing'
-                 value={formData.costing}
-                 onChange={ e => inputHandler(e) }
-            ></Input> </TableCell>
-
             <TableCell><Check className="w-6 h-6 mx-auto hover:bg-gray-700" 
                               color="#e01010"
                               onClick={rowDataHandler}
                               /></TableCell>
-              <TableCell></TableCell>
             <TableCell></TableCell>
           </TableRow>
       </TableBody>

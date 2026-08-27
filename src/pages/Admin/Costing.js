@@ -68,11 +68,8 @@ function buildCostingRows(data) {
     if (!shiftMeta.has(key)) {
       shiftMeta.set(key, {
         kitchenWorkers: null,
-        kitchenCost: null,
         fillingWorkers: null,
-        fillingCost: null,
         dispatchWorkers: null,
-        dispatchCost: null,
         pouchesProduced: 0,
       });
     }
@@ -109,13 +106,10 @@ function buildCostingRows(data) {
 
     if (section === 'Kitchen' && meta.kitchenWorkers === null) {
       meta.kitchenWorkers = num(first.workersQuantity);
-      meta.kitchenCost = num(first.costing);
     } else if (section === 'Filling' && meta.fillingWorkers === null) {
       meta.fillingWorkers = num(first.workersQuantity);
-      meta.fillingCost = num(first.costing);
     } else if (section === 'Dispatch' && meta.dispatchWorkers === null) {
       meta.dispatchWorkers = num(first.workersQuantity);
-      meta.dispatchCost = num(first.costing);
     }
 
     list.forEach(item => {
@@ -142,9 +136,9 @@ function buildCostingRows(data) {
       const fillingWorkers = meta.fillingWorkers ?? 0;
       const kitchenWorkers = meta.kitchenWorkers ?? 0;
       const dispatchWorkers = meta.dispatchWorkers ?? 0;
-      const fillingCost = meta.fillingCost ?? 0;
-      const kitchenCost = meta.kitchenCost ?? 0;
-      const dispatchCost = meta.dispatchCost ?? 0;
+      const fillingCost = fillingWorkers * 900;
+      const kitchenCost = kitchenWorkers * 900;
+      const dispatchCost = dispatchWorkers * 900;
       const costingPerPouch = meta.pouchesProduced > 0
         ? (kitchenCost + fillingCost) / meta.pouchesProduced
         : 0;
@@ -517,7 +511,7 @@ const Costing = () => {
                                   )}
                                   {row.isFirstInGroup && (
                                     <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum(row.fillingCost)}
+                                      {formatNum((row.fillingCost)/row.pouchesProduced)}
                                     </TableCell>
                                   )}
                                   {row.isFirstInGroup && (
@@ -527,7 +521,7 @@ const Costing = () => {
                                   )}
                                   {row.isFirstInGroup && (
                                     <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum(row.kitchenCost)}
+                                      {formatNum((row.kitchenCost)/row.productionQty)}
                                     </TableCell>
                                   )}
                                   {row.isFirstInGroup && (
@@ -543,7 +537,7 @@ const Costing = () => {
                                   )}
                                   {row.isFirstInGroup && (
                                     <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum(row.dispatchCost)}
+                                      {formatNum((row.dispatchCost)/row.pouchPacked)}
                                     </TableCell>
                                   )}
                                 </TableRow>
@@ -557,13 +551,13 @@ const Costing = () => {
                                 <TableCell>{formatNum(totals.wastage)}</TableCell>
                                 <TableCell>{formatNum(totals.variance)}</TableCell>
                                 <TableCell className="border-l border-border">{formatInt(totals.fillingWorkers)}</TableCell>
-                                <TableCell>{formatNum(totals.fillingCost)}</TableCell>
+                                <TableCell>{formatNum((totals.fillingCost)/totals.pouchesProduced)}</TableCell>
                                 <TableCell>{formatInt(totals.kitchenWorkers)}</TableCell>
-                                <TableCell>{formatNum(totals.kitchenCost)}</TableCell>
+                                <TableCell>{formatNum((totals.kitchenCost)/totals.productionQty)}</TableCell>
                                 <TableCell>{formatNum(totalCostingPerPouch, 3)}</TableCell>
                                 <TableCell className="border-l border-border">{formatInt(totals.pouchPacked)}</TableCell>
                                 <TableCell>{formatInt(totals.dispatchWorkers)}</TableCell>
-                                <TableCell>{formatNum(totals.dispatchCost)}</TableCell>
+                                <TableCell>{formatNum((totals.dispatchCost)/totals.pouchPacked)}</TableCell>
                               </TableRow>
                             </>
                           ) : (

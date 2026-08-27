@@ -98,9 +98,8 @@ const Dispatch = () => {
                 <TableHead>Pouch Packed</TableHead>
                 <TableHead className="text-center" colSpan={2}>Wastage</TableHead>
                 <TableHead>Box</TableHead>
-                <TableHead>No. of Workers</TableHead>
-                <TableHead>Costing</TableHead>
-                <TableHead>Cost/Pouch</TableHead>
+                <TableHead className="text-center">No. of Workers</TableHead>
+                <TableHead className="text-center">Cost/Pouch</TableHead>
               </TableRow>
               <TableRow className="bg-muted/40">
                 <TableHead></TableHead>
@@ -115,8 +114,6 @@ const Dispatch = () => {
                 <TableHead></TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
-                <TableHead></TableHead>
-                <TableHead></TableHead>
                 </TableRow>
             </TableHeader>
 
@@ -124,8 +121,13 @@ const Dispatch = () => {
         sectionData.length ? (
           <TableBody>
               {
-                sectionData[0]?.dataList.map((row,i) => (
-                <TableRow key={row.sNo} className="hover:bg-muted/50">
+                (() => {
+                  const list = sectionData[0]?.dataList || [];
+                  const workers = Number(list[0]?.workersQuantity) || 0;
+                  const totalPacked = list.reduce((acc, obj) => acc + obj.pouchPacked, 0);
+                  const costPerUnit = totalPacked ? ((workers * 900) / totalPacked) : 0;
+                  return list.map((row,i) => (
+                <TableRow key={row.sNo || i} className="hover:bg-muted/50">
                   <TableCell>{i+1}</TableCell>
                   <TableCell>{row.container}</TableCell>
                   <TableCell>{row.buyerName}</TableCell>
@@ -136,18 +138,27 @@ const Dispatch = () => {
                   <TableCell>{row.leaked}</TableCell>
                   <TableCell>{row.foreignMatter}</TableCell>
                   <TableCell>{row.box}</TableCell>
-                  <TableCell>{row.workersQuantity}</TableCell>
-                  <TableCell>{row.costing}</TableCell>
-                  <TableCell>{row.costing?((row.costing/row.pouchPacked).toFixed(3)):(0)}</TableCell>
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {workers}
+                    </TableCell>
+                  )}
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {costPerUnit.toFixed(3)}
+                    </TableCell>
+                  )}
                 </TableRow>
-              ))}
+              ));
+                })()
+              }
               <TableRow className="font-medium bg-muted/50">
                 <TableCell colSpan={6}>Total:</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.leaked,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.foreignMatter,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.box,0)}</TableCell>
-                <TableCell colSpan={4}></TableCell>
+                <TableCell colSpan={2}></TableCell>
               </TableRow>
             </TableBody>
           ) : (

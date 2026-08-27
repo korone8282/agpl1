@@ -96,9 +96,8 @@ const Filiing = () => {
                 <TableHead>Pouch Size (kg)</TableHead>
                 <TableHead>Pouch Produced</TableHead>
                 <TableHead className="text-center" colSpan={2}>Wastage</TableHead>
-                <TableHead>No. of Workers</TableHead> 
-                <TableHead>Costing</TableHead>
-                <TableHead>Cost/Pouch</TableHead>
+                <TableHead className="text-center">No. of Workers</TableHead> 
+                <TableHead className="text-center">Cost/Pouch</TableHead>
               </TableRow>
               <TableRow className="bg-muted/40">
                 <TableHead></TableHead>
@@ -112,7 +111,6 @@ const Filiing = () => {
                 <TableHead>Item (Kg)</TableHead>
                 <TableHead></TableHead>
                 <TableHead></TableHead>
-                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
 
@@ -120,8 +118,13 @@ const Filiing = () => {
         sectionData.length ? (
           <TableBody>
               {
-                sectionData[0]?.dataList.map((row,i) => (
-                <TableRow key={row.sNo} className="hover:bg-muted/50">
+                (() => {
+                  const list = sectionData[0]?.dataList || [];
+                  const workers = Number(list[0]?.workersQuantity) || 0;
+                  const totalPouches = list.reduce((acc, obj) => acc + obj.pouchQuantity, 0);
+                  const costPerUnit = totalPouches ? ((workers * 900) / totalPouches) : 0;
+                  return list.map((row,i) => (
+                <TableRow key={row.sNo || i} className="hover:bg-muted/50">
                   <TableCell>{i+1}</TableCell>
                   <TableCell>{row.container}</TableCell>
                   <TableCell>{row.buyerName}</TableCell>
@@ -131,17 +134,26 @@ const Filiing = () => {
                   <TableCell>{row.pouchQuantity}</TableCell>
                   <TableCell>{row.empty}</TableCell>
                   <TableCell>{row.filled}</TableCell>
-                  <TableCell>{row.workersQuantity}</TableCell>
-                  <TableCell>{row.costing}</TableCell>
-                  <TableCell>{row.costing?((row.costing/row.pouchQuantity).toFixed(3)):(0)}</TableCell>
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {workers}
+                    </TableCell>
+                  )}
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {costPerUnit.toFixed(3)}
+                    </TableCell>
+                  )}
                 </TableRow>
-              ))}
+              ));
+                })()
+              }
               <TableRow className="font-medium bg-muted/50">
                 <TableCell colSpan={6}>Total:</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.empty,0)}</TableCell>
                 <TableCell>{(sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.filled,0)).toFixed(2)}</TableCell>
-                <TableCell colSpan={4}></TableCell>
+                <TableCell colSpan={2}></TableCell>
               </TableRow>
             </TableBody>
           ) : (

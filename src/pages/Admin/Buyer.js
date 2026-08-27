@@ -18,7 +18,7 @@ const Buyer = () => {
     reset, 
     formState: {isSubmitSuccessful} 
   }  = useForm();
-   
+  
   const [openBox, setopenBox] = useState(0);
   const [categories, setcategories] = useState([]); 
   const [currentCategory, setcurrentCategory] = useState();
@@ -47,6 +47,7 @@ const Buyer = () => {
       })
     }
   }, [isSubmitSuccessful,reset]);
+
 
 async function handleDelete(){
   try {

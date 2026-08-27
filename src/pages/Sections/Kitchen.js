@@ -95,9 +95,8 @@ const Kitchen = () => {
                 <TableHead>No. Of Batch</TableHead>
                 <TableHead>Yield(kg)</TableHead>
                 <TableHead>Production (kg)</TableHead>
-                <TableHead>No. of Workers</TableHead>
-                <TableHead>Costing</TableHead>
-                <TableHead>Cost/Pouch</TableHead>
+                <TableHead className="text-center">No. of Workers</TableHead>
+                <TableHead className="text-center">Cost/Pouch</TableHead>
               </TableRow>
               <TableRow className="bg-muted/40">
                 <TableHead></TableHead>
@@ -115,24 +114,38 @@ const Kitchen = () => {
         sectionData.length ? (
           <TableBody>
               {
-                sectionData[0]?.dataList.map((row,i) => (
-                <TableRow key={row.sNo} className="hover:bg-muted/50">
+                (() => {
+                  const list = sectionData[0]?.dataList || [];
+                  const workers = Number(list[0]?.workersQuantity) || 0;
+                  const totalProduction = list.reduce((acc, obj) => acc + (obj.batchQuantity * obj.yield), 0);
+                  const costPerUnit = totalProduction ? ((workers * 900) / totalProduction) : 0;
+                  return list.map((row,i) => (
+                <TableRow key={row.sNo || i} className="hover:bg-muted/50">
                   <TableCell>{i+1}</TableCell>
                   <TableCell>{row.buyerName}</TableCell>
                   <TableCell>{row.productName}</TableCell>
                   <TableCell>{row.batchQuantity}</TableCell>
                   <TableCell>{row.yield}</TableCell>
                   <TableCell>{(row.yield*row.batchQuantity).toFixed(2)}</TableCell>
-                  <TableCell>{row.workersQuantity}</TableCell>
-                  <TableCell>{row.costing}</TableCell>
-                  <TableCell>{row.costing?((row.costing/(row.yield*row.batchQuantity)).toFixed(3)):(0)}</TableCell>
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {workers}
+                    </TableCell>
+                  )}
+                  {i === 0 && (
+                    <TableCell rowSpan={list.length} className="text-center align-middle">
+                      {costPerUnit.toFixed(3)}
+                    </TableCell>
+                  )}
                 </TableRow>
-              ))}
+              ));
+                })()
+              }
               <TableRow className="font-medium bg-muted/50">
                 <TableCell colSpan={3}>Total:</TableCell>
                 <TableCell colSpan={2}>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + obj.batchQuantity,0)}</TableCell>
                 <TableCell>{sectionData[0].dataList.reduce( (accumulator, obj) => accumulator + (obj.batchQuantity*obj.yield),0).toFixed(2)}</TableCell> 
-                <TableCell colSpan={4}></TableCell>
+                <TableCell colSpan={2}></TableCell>
               </TableRow>
             </TableBody>
           ) : (
