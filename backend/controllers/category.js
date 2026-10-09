@@ -1,6 +1,6 @@
 require("dotenv").config();
 const Category = require('../models/categoryModel');
- 
+
 exports.createCategory = async(req,res) => {
 try {
     const{name} = req.body;
@@ -111,7 +111,7 @@ exports.categoryList = async(req,res) => {
                     success:true,
                     data:categories,    
                 });
-            
+          
             } catch (error) {
                 console.log(error);
                 res.status(400).json({

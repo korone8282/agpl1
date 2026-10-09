@@ -32,6 +32,7 @@ exports.createData = async (event) => {
 
 exports.readData = async (event) => {
   try {
+
     const { date, month } = event.pathParameters || {};
     const start = new Date(`2026-${month}-${date}`);
     start.setHours(0, 0, 0, 0);

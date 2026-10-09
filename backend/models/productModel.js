@@ -22,6 +22,15 @@ const productSchema = new mongoose.Schema({
             type: Number,
             default: 0,
         },
+        entries:[{
+            date:{
+                type: String,
+            },
+            quantity:{
+                type: Number,
+                default: 0,
+            },
+        }],
     }],
     dispatched:[{
         month:{

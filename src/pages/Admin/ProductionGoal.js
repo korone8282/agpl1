@@ -165,230 +165,322 @@ const inputHandler = async(e) =>{
   }
 
   return (
-
     <PageTransition>
-          <div className={`min-h-screen bg-background p-6 `}>
-      <div className="max-w-[95rem] mx-auto">
-        <div className="mb-8 space-y-7">
-          <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-semibold text-foreground">Daily Goals</h1>
-            <div className="flex items-center space-x-4">
-              <label className="text-md text-muted-foreground">Updated At:</label>
-              <span className="bg-[#25282d] px-3 py-1 rounded-md text-sm text-muted-foreground">
-                {new Date().toLocaleString()}
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-8">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Target Tracking
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Production Metrics</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Daily Production Goals
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Live circular completion gauges and shift completion quotas.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
+                <span className="text-xs text-zinc-400 font-mono uppercase">Plan Date:</span>
+                <input
+                  type="date"
+                  value={info.date}
+                  name="date"
+                  onChange={(e) => {
+                    inputHandler(e);
+                    dispatch(setGoalDate(e.target.value));
+                    window.location.reload();
+                  }}
+                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-400">
+                Updated: {new Date().toLocaleTimeString()}
               </span>
             </div>
           </div>
-          
-          <div className="flex items-center space-x-4">
-            <label className="text-lg text-muted-foreground">Plan for:</label>
-            <input
-              type="date"
-              value={info.date}
-              name='date'
-              onChange={e =>{ 
-                              inputHandler(e);
-                              dispatch(setGoalDate(e.target.value));
-                              window.location.reload();
-                            }}
-              className="border bg-[#22252a] border-border rounded-md px-3 py-1.5 text-md focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground shadow-md"
-            />
-          </div>
-        </div>
 
-{
-  error ? (
-<div className='text-center text-9xl'>No Data Found</div>
-  ):(
-  <div>
-    {
-      loading ? (<Loader/>
-      ):(
-        <div className={`flex flex-wrap justify-evenly ${openBox ? 'hidden' : ''} gap-20 max-w-[100rem]`}>
-        {
-          goals?.map((val,index)=>(
-            <div 
-                key={index}
-                className="flex flex-col sm:flex-row gap-6 sm:gap-8 min-w-80 lg:gap-12 border-2 border-white/10 text-[#f59e0b] bg-[#22252a] rounded-lg p-4 sm:p-8 mx-0 sm:mx-2"
-                onClick={()=>{
-                  setopenBox(!openBox);
-                  setcurrentGoal(val)}}
+          {error ? (
+            <div className="w-full p-16 text-center bg-white/[0.02] border border-white/10 rounded-2xl">
+              <p className="text-2xl font-bold text-zinc-400">No Target Records Found</p>
+              <p className="text-sm text-zinc-500 mt-2">No production targets scheduled for this date.</p>
+            </div>
+          ) : loading ? (
+            <Loader />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 w-full">
+              {goals?.map((val, index) => (
+                <div
+                  key={index}
+                  className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 hover:border-primary/40 hover:bg-[#121212] p-6 transition-all duration-300 shadow-xl backdrop-blur-xl flex flex-col justify-between cursor-pointer group"
+                  onClick={() => {
+                    setopenBox(!openBox);
+                    setcurrentGoal(val);
+                  }}
                 >
-                <div className="flex flex-col gap-1 text-xl sm:text-2xl justify-evenly font-bold sm:max-w-48">
-                  <div className="text-white">Buyer Name:</div>
-                  <div className="mb-2">{val.buyerName}</div>
-                  <div className="text-white">Product Name:</div>
-                  <div className="mb-2 break-words">{val.fname}</div>
-                  <div className="text-white">Batch No:</div>
-                  <div className="mb-2">{val.batchNum}</div>
-                  <div className="text-white">Pack Size (Kg):</div>
-                  <div className="mb-2">{val.pouchSize}</div>
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <span className="text-xs uppercase tracking-wider text-primary font-semibold">
+                        {val.buyerName}
+                      </span>
+                      <h3 className="text-lg font-bold text-white group-hover:text-primary transition-colors">
+                        {val.fname}
+                      </h3>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/20">
+                      {val.day || "Shift"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono py-3 px-4 rounded-xl bg-black/60 border border-white/5 mb-6">
+                    <div>
+                      <span className="text-zinc-500 block">Batch No:</span>
+                      <span className="text-zinc-200 font-semibold">{val.batchNum}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 block">Pack Size:</span>
+                      <span className="text-zinc-200 font-semibold">{val.pouchSize} Kg</span>
+                    </div>
+                  </div>
+
+                  {/* Circular Completion Gauge */}
+                  <div className="flex flex-col items-center justify-center py-2">
+                    <div className="flex w-[180px] h-[180px] justify-center items-center relative">
+                      <CircularSlider
+                        label="Completion"
+                        labelFontSize="0.85rem"
+                        valueFontSize="1.75rem"
+                        verticalOffset="0.4rem"
+                        width={180}
+                        labelColor="#f59e0b"
+                        progressColorFrom="#00BCD4"
+                        progressColorTo="#9C27B0"
+                        hideKnob={true}
+                        progressSize={16}
+                        value={`${((val.pouchPacked / val.pouchGoal) * 100).toFixed(1)}`}
+                        appendToValue="%"
+                        trackColor="#222"
+                        trackSize={18}
+                        initialValue={(val.pouchPacked / val.pouchGoal) * 100}
+                        knobDraggable={false}
+                        dataIndex={(val.pouchPacked / val.pouchGoal) * 360}
+                      />
+                    </div>
+
+                    <div className="text-xl font-bold font-mono text-white mt-4 flex items-center gap-2">
+                      <span>{val.pouchPacked}</span>
+                      <span className="text-zinc-600">/</span>
+                      <span className="text-zinc-400">{val.pouchGoal}</span>
+                      <span className="text-xs text-zinc-500 font-sans">units</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-zinc-500">
+                    <span>Click to modify or delete</span>
+                    <span className="text-primary group-hover:translate-x-1 transition-transform">→</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Update Goal Modal */}
+          {openBox && currentGoal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e0e] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-5 border-b border-white/10 pb-4">
+                  <h2 className="text-xl font-bold text-white">Update Production Target</h2>
+                  <button
+                    onClick={() => setopenBox(0)}
+                    className="text-zinc-400 hover:text-white text-sm px-2 py-1"
+                  >
+                    ✕
+                  </button>
                 </div>
 
-                <div className="flex flex-col items-center gap-6 w-full sm:w-auto">
-                  <div className="flex w-[180px] sm:w-[200px] h-[180px] sm:h-[200px] justify-center items-center relative">
-                  <div className="w-[110%] h-[110%] shadow-lg shadow-primary bg-transparent rounded-full absolute animate-spin_right"></div>                
-                  <div className="w-[108%] h-[108%] shadow-lg shadow-violet-400 bg-transparent rounded-full absolute animate-spin_left"></div>
-                  <div className="w-[106%] h-[106%] shadow-lg shadow-cyan-500 bg-transparent rounded-full absolute animate-spin_right_fast"></div>
-                    <CircularSlider
-                      label="Completion"
-                      labelFontSize="1rem"
-                      valueFontSize="2rem"
-                      verticalOffset="0.5rem"
-                      width={180}
-                      labelColor="#f59e0b"
-                      progressColorFrom="#00BCD4"
-                      progressColorTo="#9C27B0"
-                      hideKnob={true}
-                      progressSize={20}
-                      value={`${((val.pouchPacked / val.pouchGoal)*100).toFixed(2)}`}
-                      appendToValue='%'
-                      trackColor=""
-                      trackSize={24}
-                      initialValue={(val.pouchPacked / val.pouchGoal)*100}
-                      knobDraggable={false}
-                      dataIndex={(val.pouchPacked / val.pouchGoal)*360}
-                    />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Buyer Name
+                    </label>
+                    <select
+                      name="buyerName"
+                      className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary"
+                      value={info.buyerName}
+                      onChange={(e) => inputHandler(e)}
+                    >
+                      <option value="">{currentGoal.buyerName || "Select"}</option>
+                      {categories.map((val, index) => (
+                        <option value={val.name} key={index}>
+                          {val.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div className="text-2xl sm:text-3xl mt-4 font-bold">
-                    {val.pouchPacked} / {val.pouchGoal}
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Product Name
+                    </label>
+                    <select
+                      name="fname"
+                      className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary"
+                      value={info.fname}
+                      onChange={(e) => inputHandler(e)}
+                    >
+                      <option value="">{currentGoal.fname || "Select"}</option>
+                      {products
+                        ?.filter((product) => product.buyer === info.buyerName)
+                        .map((val, index) => (
+                          <option value={val.name} key={index}>
+                            {val.name}
+                          </option>
+                        ))}
+                    </select>
                   </div>
 
-                  <div className="text-2xl sm:text-3xl font-bold -mt-3">
-                    {val.day}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                        Batch Number
+                      </label>
+                      <input
+                        type="text"
+                        id="email"
+                        value={info.batchNum}
+                        placeholder={currentGoal.batchNum}
+                        name="batchNum"
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm font-mono focus:border-primary"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                        Pouch Size (Kg)
+                      </label>
+                      <input
+                        type="number"
+                        id="pass"
+                        value={info.pouchSize}
+                        placeholder={currentGoal.pouchSize}
+                        name="pouchSize"
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm font-mono focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                        Pouch Target
+                      </label>
+                      <input
+                        type="number"
+                        id="confirmPassword"
+                        name="pouchGoal"
+                        value={info.pouchGoal}
+                        placeholder={currentGoal.pouchGoal}
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm font-mono focus:border-primary"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                        Pouch Packed
+                      </label>
+                      <input
+                        type="number"
+                        id="confirmPassword"
+                        name="pouchPacked"
+                        value={info.pouchPacked}
+                        placeholder={currentGoal.pouchPacked}
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm font-mono focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                      Shift Timing
+                    </label>
+                    <div className="flex items-center gap-10 px-4 py-3 bg-black border border-white/10 rounded-xl">
+                      <StyledWrapper>
+                        <label className="checkbox-btn">
+                          Day Shift <label htmlFor="checkbox" />
+                          <input
+                            id="checkbox"
+                            type="checkbox"
+                            name="day"
+                            value="Day"
+                            onClick={(e) => {
+                              inputHandler(e);
+                              document.getElementById("nightCheckbox").checked = false;
+                            }}
+                          />
+                          <span className="checkmark" />
+                        </label>
+                      </StyledWrapper>
+
+                      <StyledWrapper>
+                        <label className="checkbox-btn">
+                          Night Shift <label htmlFor="nightCheckbox" />
+                          <input
+                            id="nightCheckbox"
+                            type="checkbox"
+                            name="day"
+                            value="Night"
+                            onClick={(e) => {
+                              inputHandler(e);
+                              document.getElementById("checkbox").checked = false;
+                            }}
+                          />
+                          <span className="checkmark" />
+                        </label>
+                      </StyledWrapper>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                    <button
+                      type="button"
+                      className="px-4 py-2.5 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
+                      onClick={() => setopenBox(0)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="px-4 py-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 text-xs font-semibold transition-all"
+                      onClick={handleDelete}
+                    >
+                      Delete Goal
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
+                      onClick={handleUpdate}
+                    >
+                      Save Changes
+                    </button>
                   </div>
                 </div>
               </div>
-          ))
-        }
+            </div>
+          )}
         </div>
-      )
-    }
-  </div>
-  )
-}
-     
-
-        {
-            openBox ? (
-              <div className={`bg-[#22252a] text-white mt-96 md:m-auto p-6 rounded-lg shadow-lg w-full max-w-md z-30 h-fit absolute inset-0 `}>
-        <h2 className="text-xl font-semibold mb-4">Update Goal</h2>
-        <div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Buyer Name</label>
-                <select
-         name='buyerName'
-             className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-         value={info.buyerName}
-         onChange={ e => inputHandler(e) }
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground '>Select</option>
-    {
-        categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-    }
-    </select>
-</div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Product Name</label>
-                <select
-         name='fname'
-           className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-         value={info.fname}
-         onChange={ e => inputHandler(e) }
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-    {
-        products?.filter((product) => product.buyer === info.buyerName).map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-    }
-    </select>
-</div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Batch Number</label>
-                <input  type='text' 
-                        id="email" 
-                        value={info.batchNum}
-                        placeholder={currentGoal.batchNum}
-                        name="batchNum" 
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        /> 
-            </div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Pouch Size</label>
-                <input  type='number'
-                        id="pass" 
-                        value={info.pouchSize}
-                        placeholder={currentGoal.pouchSize}
-                        name='pouchSize'
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-
-            </div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Pouch Goal</label>
-                <input  type='number'
-                        id="confirmPassword" 
-                        name = "pouchGoal" 
-                        value={info.pouchGoal}
-                        placeholder={currentGoal.pouchGoal}
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              /></div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Pouch Packed</label>
-                <input  type='number'
-                        id="confirmPassword" 
-                        name = "pouchPacked"
-                        value={info.pouchPacked} 
-                        onChange={ e => inputHandler(e) }
-                        placeholder={currentGoal.pouchPacked}
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-
-</div>
-            <div className="mb-6">
-                <label className="block text-muted-foreground mb-3">Day/Night</label>
-                <div className="flex items-center gap-12">
-
-                <StyledWrapper>
-      <label className="checkbox-btn">
-        Day <label htmlFor="checkbox" />
-        <input id="checkbox" type="checkbox" name='day' value="Day" onClick={e=>{inputHandler(e); document.getElementById('nightCheckbox').checked = false;}}/>
-        <span className="checkmark" />
-      </label>
-               </StyledWrapper>
-
-               <StyledWrapper>
-      <label className="checkbox-btn">
-         Night <label htmlFor="nightCheckbox" />
-        <input id="nightCheckbox" type="checkbox" name='day' value="Night" onClick={e=>{inputHandler(e); document.getElementById('checkbox').checked = false;}}/>
-        <span className="checkmark" />
-      </label>
-               </StyledWrapper>
-
-                </div>
-            </div>
-            <div className="flex justify-end space-x-2">
-                <button type="button" className="bg-[#2e3138] py-2 px-4 rounded hover:bg-gray-600" 
-                        onClick={()=>setopenBox(!openBox)}>Cancel</button>
-                <button type="button" className="bg-red-600 py-2 px-4 rounded hover:bg-red-500"
-                        onClick={handleDelete}>Delete</button>
-                <button type="submit" className="bg-primary text-black py-2 px-4 rounded hover:bg-yellow-400"
-                        onClick={handleUpdate}>Update</button>
-            </div>
-        </div>
-    </div>
-            ) : (
-              <div></div>
-            )
-          }
-
       </div>
-    </div>
     </PageTransition>
-
   );
 }
 

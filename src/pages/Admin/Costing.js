@@ -187,8 +187,8 @@ function withGroupMeta(rows) {
   });
 }
 
-const filterBtnClass = "border-primary text-primary hover:bg-primary/10";
-const filterMenuClass = "w-[280px] p-2 bg-muted border-primary shadow-lg";
+const filterBtnClass = "border border-white/10 bg-white/5 hover:bg-white/10 hover:border-primary/50 text-white rounded-xl px-4 py-2 text-xs font-semibold tracking-wider transition-all shadow-sm";
+const filterMenuClass = "w-[280px] p-3 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white";
 
 const Costing = () => {
   const { userinfo } = useSelector(state => state.auth);
@@ -299,28 +299,45 @@ const Costing = () => {
 
   return (
     <PageTransition>
-      <div className="min-h-screen bg-background p-6">
-        <div className="max-w-[100rem] mx-auto space-y-12 text-start">
-          <div>
-            <h2 className="text-xl font-semibold">Costing For <span className='text-primary'>{months[month - 1].month}</span></h2>
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6 text-start">
+          {/* Header & Month Title */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Financial Analytics
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Shift Costing & Yield Variance</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Costing Ledger: <span className="text-primary">{months[month - 1].month}</span>
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Cross-shift labor allocation, material variance, packaging cost per pouch, and dispatch tracking.
+              </p>
+            </div>
 
-            <div className="flex flex-wrap items-center gap-3 bg-card my-5">
+            {/* Filter Toolbar */}
+            <div className="flex flex-wrap items-center gap-2.5">
               <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className={filterBtnClass}>
-                    Month
+                    📅 Month: {months[month - 1].month}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className={filterMenuClass}>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     {months.map((item, index) => (
                       <Button
                         key={item.month}
                         variant="ghost"
+                        className="text-xs hover:bg-white/10 hover:text-primary rounded-lg"
                         onClick={() => {
-                          setIsOpen(false)
+                          setIsOpen(false);
                           setmonth(index + 1);
-                        }}>
+                        }}
+                      >
                         {item.month}
                       </Button>
                     ))}
@@ -331,13 +348,14 @@ const Costing = () => {
               <Popover open={buyerOpen} onOpenChange={setBuyerOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className={filterBtnClass}>
-                    {buyerFilter === ALL ? "Buyer" : buyerFilter}
+                    👤 {buyerFilter === ALL ? "Buyer: All" : buyerFilter}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className={`${filterMenuClass} max-h-72 overflow-auto`}>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-1">
                     <Button
                       variant="ghost"
+                      className="text-xs justify-start hover:bg-white/10"
                       onClick={() => {
                         setBuyerOpen(false);
                         setBuyerFilter(ALL);
@@ -350,6 +368,7 @@ const Costing = () => {
                       <Button
                         key={buyer}
                         variant="ghost"
+                        className="text-xs justify-start hover:bg-white/10 hover:text-primary"
                         onClick={() => {
                           setBuyerOpen(false);
                           setBuyerFilter(buyer);
@@ -366,13 +385,14 @@ const Costing = () => {
               <Popover open={productOpen} onOpenChange={setProductOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className={filterBtnClass}>
-                    {productFilter === ALL ? "Product" : productFilter}
+                    📦 {productFilter === ALL ? "Product: All" : productFilter}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className={`${filterMenuClass} max-h-72 overflow-auto`}>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-1">
                     <Button
                       variant="ghost"
+                      className="text-xs justify-start hover:bg-white/10"
                       onClick={() => {
                         setProductOpen(false);
                         setProductFilter(ALL);
@@ -384,6 +404,7 @@ const Costing = () => {
                       <Button
                         key={product}
                         variant="ghost"
+                        className="text-xs justify-start hover:bg-white/10 hover:text-primary"
                         onClick={() => {
                           setProductOpen(false);
                           setProductFilter(product);
@@ -399,13 +420,14 @@ const Costing = () => {
               <Popover open={shiftOpen} onOpenChange={setShiftOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className={filterBtnClass}>
-                    {shiftFilter === ALL ? "Shift" : shiftFilter}
+                    ⏱ {shiftFilter === ALL ? "Shift: All" : shiftFilter}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className={filterMenuClass}>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-1">
                     <Button
                       variant="ghost"
+                      className="text-xs justify-start hover:bg-white/10"
                       onClick={() => {
                         setShiftOpen(false);
                         setShiftFilter(ALL);
@@ -417,6 +439,7 @@ const Costing = () => {
                       <Button
                         key={shift}
                         variant="ghost"
+                        className="text-xs justify-start hover:bg-white/10 hover:text-primary"
                         onClick={() => {
                           setShiftOpen(false);
                           setShiftFilter(shift);
@@ -431,148 +454,189 @@ const Costing = () => {
             </div>
           </div>
 
-          {
-            error ? (
-              <div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'> No Data Entry Found</div>
-            ) : (
-              <div>
-                {
-                  loading ? (
-                    <Loader />
-                  ) : (
-                    <div className="rounded-lg border bg-card [&>div]:max-h-[40rem]">
-                      <Table>
-                        <TableHeader className="sticky top-0 z-20 bg-muted shadow-sm">
-                          <TableRow className="bg-muted hover:bg-muted border-b">
-                            <TableHead className="bg-muted">Date</TableHead>
-                            <TableHead className="bg-muted">Shift</TableHead>
-                            <TableHead className="bg-muted">Buyer Name</TableHead>
-                            <TableHead className="bg-muted">Product Name</TableHead>
-                            <TableHead className="bg-muted border-l border-border">Production Quantity</TableHead>
-                            <TableHead className="bg-muted">Pouches Produced</TableHead>
-                            <TableHead className="bg-muted">Wastage Pouches</TableHead>
-                            <TableHead className="bg-muted">Wastage</TableHead>
-                            <TableHead className="bg-muted">Variance (Kg)</TableHead>
-                            <TableHead className="bg-muted border-l border-border">Filling Workers</TableHead>
-                            <TableHead className="bg-muted">Filling Costing</TableHead>
-                            <TableHead className="bg-muted">Kitchen Workers</TableHead>
-                            <TableHead className="bg-muted">Kitchen Costing</TableHead>
-                            <TableHead className="bg-muted">Costing Per Pouch</TableHead>
-                            <TableHead className="bg-muted border-l border-border">Pouch Packed</TableHead>
-                            <TableHead className="bg-muted">Dispatch Workers</TableHead>
-                            <TableHead className="bg-muted">Dispatch Costing</TableHead>
-                          </TableRow>
-                        </TableHeader>
+          {/* Quick KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Pouches Produced</span>
+              <span className="text-xl font-bold font-mono text-white">{formatInt(totals.pouchesProduced)}</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Total units packed</span>
+            </div>
 
-                        <TableBody>
-                          {rows.length ? (
-                            <>
-                              {rows.map((row) => {
-                                const groupId = shiftKey(row.dateKey, row.shift);
-                                const isGroupHovered = hoveredGroup === groupId;
-                                const hoverBg = isGroupHovered ? "bg-muted/50" : "";
-                                const mergeCell = `align-middle text-center ${hoverBg}`;
-                                return (
-                                <TableRow
-                                  key={`${row.dateKey}-${row.buyerName}-${row.productName}-${row.shift}`}
-                                  data-group={groupId}
-                                  onMouseEnter={() => setHoveredGroup(groupId)}
-                                  onMouseLeave={(e) => {
-                                    const next = e.relatedTarget;
-                                    if (next instanceof Element) {
-                                      const nextRow = next.closest("tr[data-group]");
-                                      if (nextRow?.getAttribute("data-group") === groupId) return;
-                                    }
-                                    setHoveredGroup((prev) => (prev === groupId ? null : prev));
-                                  }}
-                                  className={`${row.isLastInGroup ? "border-b" : "border-b-0"} hover:bg-transparent`}
-                                >
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {row.dateLabel}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {row.shift}
-                                    </TableCell>
-                                  )}
-                                  <TableCell className={hoverBg}>{row.buyerName}</TableCell>
-                                  <TableCell className={hoverBg}>{row.productName}</TableCell>
-                                  <TableCell className={`border-l border-border ${hoverBg}`}>{formatNum(row.productionQty)}</TableCell>
-                                  <TableCell className={hoverBg}>{formatInt(row.pouchesProduced)}</TableCell>
-                                  <TableCell className={hoverBg}>{formatInt(row.wastagePouches)}</TableCell>
-                                  <TableCell className={hoverBg}>{formatNum(row.wastage)}</TableCell>
-                                  <TableCell className={hoverBg}>{formatNum(row.variance)}</TableCell>
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={`border-l border-border ${mergeCell}`}>
-                                      {formatInt(row.fillingWorkers)}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum((row.fillingCost)/row.pouchesProduced)}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatInt(row.kitchenWorkers)}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum((row.kitchenCost)/row.productionQty)}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum(row.costingPerPouch, 3)}
-                                    </TableCell>
-                                  )}
-                                  <TableCell className={`border-l border-border ${hoverBg}`}>{formatInt(row.pouchPacked)}</TableCell>
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatInt(row.dispatchWorkers)}
-                                    </TableCell>
-                                  )}
-                                  {row.isFirstInGroup && (
-                                    <TableCell rowSpan={row.groupSpan} className={mergeCell}>
-                                      {formatNum((row.dispatchCost)/row.pouchPacked)}
-                                    </TableCell>
-                                  )}
-                                </TableRow>
-                                );
-                              })}
-                              <TableRow className="font-medium bg-muted/50 hover:bg-muted/50">
-                                <TableCell colSpan={4}>Total:</TableCell>
-                                <TableCell className="border-l border-border">{formatNum(totals.productionQty)}</TableCell>
-                                <TableCell>{formatInt(totals.pouchesProduced)}</TableCell>
-                                <TableCell>{formatInt(totals.wastagePouches)}</TableCell>
-                                <TableCell>{formatNum(totals.wastage)}</TableCell>
-                                <TableCell>{formatNum(totals.variance)}</TableCell>
-                                <TableCell className="border-l border-border">{formatInt(totals.fillingWorkers)}</TableCell>
-                                <TableCell>{formatNum((totals.fillingCost)/totals.pouchesProduced)}</TableCell>
-                                <TableCell>{formatInt(totals.kitchenWorkers)}</TableCell>
-                                <TableCell>{formatNum((totals.kitchenCost)/totals.productionQty)}</TableCell>
-                                <TableCell>{formatNum(totalCostingPerPouch, 3)}</TableCell>
-                                <TableCell className="border-l border-border">{formatInt(totals.pouchPacked)}</TableCell>
-                                <TableCell>{formatInt(totals.dispatchWorkers)}</TableCell>
-                                <TableCell>{formatNum((totals.dispatchCost)/totals.pouchPacked)}</TableCell>
-                              </TableRow>
-                            </>
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={17} className='text-3xl'>No Data Entry Found</TableCell>
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Production Yield</span>
+              <span className="text-xl font-bold font-mono text-white">{formatNum(totals.productionQty)}</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Kg kitchen output</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Material Wastage</span>
+              <span className="text-xl font-bold font-mono text-amber-400">{formatNum(totals.wastage)} Kg</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">{formatInt(totals.wastagePouches)} empty/leaked</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Net Variance</span>
+              <span className={`text-xl font-bold font-mono ${totals.variance < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                {formatNum(totals.variance)} Kg
+              </span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Reconciliation diff</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 col-span-2 sm:col-span-1">
+              <span className="text-[13px] font-mono uppercase text-primary block mb-1">Avg Cost / Pouch</span>
+              <span className="text-xl font-bold font-mono text-primary">₹{formatNum(totalCostingPerPouch, 3)}</span>
+              <span className="text-[12px] text-primary/70 block mt-0.5">Kitchen + Filling labor</span>
+            </div>
+          </div>
+
+          {error ? (
+            <div className="w-full p-16 text-center bg-white/[0.02] border border-white/10 rounded-2xl">
+              <p className="text-xl font-bold text-zinc-400">No Data Entry Found</p>
+              <p className="text-xs text-zinc-500 mt-1">No production logs available for this period and filter selection.</p>
+            </div>
+          ) : loading ? (
+            <Loader />
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div className="overflow-x-auto max-h-[46rem]">
+                <Table>
+                  <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                    <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Date</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Shift</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Yield Qty (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouches</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (P)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Variance (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Fill Workers</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Fill Cost/P</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Kitch Workers</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Kitch Cost/Kg</TableHead>
+                      <TableHead className="bg-[#141414] text-primary text-xs font-mono py-3.5">Cost/Pouch</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Packed</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Disp Workers</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Disp Cost/P</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {rows.length ? (
+                      <>
+                        {rows.map((row) => {
+                          const groupId = shiftKey(row.dateKey, row.shift);
+                          const isGroupHovered = hoveredGroup === groupId;
+                          const hoverBg = isGroupHovered ? "bg-white/[0.04]" : "";
+                          const mergeCell = `align-middle text-center bg-[#0d0d0d]/90 font-mono text-xs ${hoverBg}`;
+                          return (
+                            <TableRow
+                              key={`${row.dateKey}-${row.buyerName}-${row.productName}-${row.shift}`}
+                              data-group={groupId}
+                              onMouseEnter={() => setHoveredGroup(groupId)}
+                              onMouseLeave={(e) => {
+                                const next = e.relatedTarget;
+                                if (next instanceof Element) {
+                                  const nextRow = next.closest("tr[data-group]");
+                                  if (nextRow?.getAttribute("data-group") === groupId) return;
+                                }
+                                setHoveredGroup((prev) => (prev === groupId ? null : prev));
+                              }}
+                              className={`${row.isLastInGroup ? "border-b border-white/10" : "border-b border-white/5"} hover:bg-transparent`}
+                            >
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  <span className="font-semibold text-white">{row.dateLabel}</span>
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[13px] font-semibold ${
+                                    row.shift === "Night" ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                  }`}>
+                                    {row.shift}
+                                  </span>
+                                </TableCell>
+                              )}
+                              <TableCell className={`text-xs font-semibold text-zinc-300 py-3 ${hoverBg}`}>{row.buyerName}</TableCell>
+                              <TableCell className={`text-xs text-white py-3 ${hoverBg}`}>{row.productName}</TableCell>
+                              <TableCell className={`border-l border-white/5 font-mono text-xs text-zinc-300 py-3 ${hoverBg}`}>{formatNum(row.productionQty)}</TableCell>
+                              <TableCell className={`font-mono text-xs text-white py-3 ${hoverBg}`}>{formatInt(row.pouchesProduced)}</TableCell>
+                              <TableCell className={`font-mono text-xs text-zinc-400 py-3 ${hoverBg}`}>{formatInt(row.wastagePouches)}</TableCell>
+                              <TableCell className={`font-mono text-xs text-amber-400 py-3 ${hoverBg}`}>{formatNum(row.wastage)}</TableCell>
+                              <TableCell className={`font-mono text-xs py-3 ${hoverBg} ${row.variance < 0 ? "text-rose-400 font-semibold" : "text-emerald-400"}`}>
+                                {formatNum(row.variance)}
+                              </TableCell>
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={`border-l border-white/10 ${mergeCell}`}>
+                                  {formatInt(row.fillingWorkers)}
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  ₹{formatNum((row.fillingCost) / row.pouchesProduced)}
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  {formatInt(row.kitchenWorkers)}
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  ₹{formatNum((row.kitchenCost) / row.productionQty)}
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={`${mergeCell} text-primary font-bold`}>
+                                  ₹{formatNum(row.costingPerPouch, 3)}
+                                </TableCell>
+                              )}
+                              <TableCell className={`border-l border-white/5 font-mono text-xs text-zinc-300 py-3 ${hoverBg}`}>{formatInt(row.pouchPacked)}</TableCell>
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  {formatInt(row.dispatchWorkers)}
+                                </TableCell>
+                              )}
+                              {row.isFirstInGroup && (
+                                <TableCell rowSpan={row.groupSpan} className={mergeCell}>
+                                  ₹{formatNum((row.dispatchCost) / row.pouchPacked)}
+                                </TableCell>
+                              )}
                             </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )
-                }
+                          );
+                        })}
+                        {/* Totals Row */}
+                        <TableRow className="font-mono text-xs font-bold bg-[#141414] border-t-2 border-white/20 text-white">
+                          <TableCell colSpan={4} className="py-4 text-primary uppercase tracking-wider">Month Summary Total:</TableCell>
+                          <TableCell className="border-l border-white/10 py-4">{formatNum(totals.productionQty)}</TableCell>
+                          <TableCell className="py-4">{formatInt(totals.pouchesProduced)}</TableCell>
+                          <TableCell className="py-4">{formatInt(totals.wastagePouches)}</TableCell>
+                          <TableCell className="py-4 text-amber-400">{formatNum(totals.wastage)}</TableCell>
+                          <TableCell className={`py-4 ${totals.variance < 0 ? "text-rose-400" : "text-emerald-400"}`}>{formatNum(totals.variance)}</TableCell>
+                          <TableCell className="border-l border-white/10 py-4">{formatInt(totals.fillingWorkers)}</TableCell>
+                          <TableCell className="py-4">₹{formatNum((totals.fillingCost) / totals.pouchesProduced)}</TableCell>
+                          <TableCell className="py-4">{formatInt(totals.kitchenWorkers)}</TableCell>
+                          <TableCell className="py-4">₹{formatNum((totals.kitchenCost) / totals.productionQty)}</TableCell>
+                          <TableCell className="py-4 text-primary font-black">₹{formatNum(totalCostingPerPouch, 3)}</TableCell>
+                          <TableCell className="border-l border-white/10 py-4">{formatInt(totals.pouchPacked)}</TableCell>
+                          <TableCell className="py-4">{formatInt(totals.dispatchWorkers)}</TableCell>
+                          <TableCell className="py-4">₹{formatNum((totals.dispatchCost) / totals.pouchPacked)}</TableCell>
+                        </TableRow>
+                      </>
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={17} className="text-center py-12 text-zinc-400 text-sm">
+                          No matching records found for the selected filters.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
               </div>
-            )
-          }
+            </div>
+          )}
         </div>
       </div>
     </PageTransition>

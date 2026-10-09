@@ -1,21 +1,21 @@
-import React, {useState, useEffect} from 'react'
+import React, { useState, useEffect } from 'react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
-import {  EXPORT_URL } from '../../redux/Utils/constants';
+import { EXPORT_URL } from '../../redux/Utils/constants';
 import { useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Loader from '../../components/Loader'
+import Loader from '../../components/Loader';
 import { toast } from 'react-toastify';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
+import { Box, Trash2, ArrowLeft, Layers } from "lucide-react";
 import PageTransition from '../PageTransition';
 
 const Container = () => {
-
-  const {userinfo} = useSelector(state => state.auth);
+  const { userinfo } = useSelector((state) => state.auth);
 
   const [info] = useState({
-    start:new Date(new Date().setDate(new Date().getDate() - 60)).toISOString().split('T')[0],
+    start: new Date(new Date().setDate(new Date().getDate() - 60)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0],
-});
+  });
 
   const exportId = useLocation().pathname.split("/")[3];
   const navigate = useNavigate();
@@ -26,163 +26,289 @@ const Container = () => {
   const [array, setArray] = useState([]);
 
   useEffect(() => {
-        
-    async function getData(){
-        try {
+    async function getData() {
+      try {
         setError(0);
         setLoading(1);
-        
-        const res = await apiConnector(`${EXPORT_URL}/${exportId}`,"GET",null,{Authorization: `Bearer ${userinfo.token}`});
+
+        const res = await apiConnector(`${EXPORT_URL}/${exportId}`, "GET", null, {
+          Authorization: `Bearer ${userinfo.token}`,
+        });
         setArr(res.data.data);
-
         setLoading(0);
-        
-
-        } catch (e) {
-          setError(1);
-          console.log(e);
-        }
+      } catch (e) {
+        setError(1);
+        console.log(e);
       }
+    }
 
-      async function getInfo(){
-        try {
+    async function getInfo() {
+      try {
         setError(0);
         setLoading(1);
-        
-        const res = await apiConnector(`${EXPORT_URL}/read`,"PUT",info,{Authorization: `Bearer ${userinfo.token}`});
+
+        const res = await apiConnector(`${EXPORT_URL}/read`, "PUT", info, {
+          Authorization: `Bearer ${userinfo.token}`,
+        });
 
         setArray(res.data.data);
-      
         setLoading(0);
-      
-        } catch (e) {
-          console.log(e);
-        }
+      } catch (e) {
+        console.log(e);
       }
-      
-      getInfo();
-      getData();
-
-}, [userinfo.token,exportId,info]);
-
-async function deleteExport(){
-  try {
-  setError(0);
-  setLoading(1);
-  
-  await apiConnector(`${EXPORT_URL}/${exportId}`,"DELETE",null,{Authorization: `Bearer ${userinfo.token}`});
-  toast("Deleted Successfully")
-  navigate("/admin/Container-List");
-
-  } catch (e) {
-    setError(1);
-    console.log(e);
-  }
-}
-
-      return (
-        <PageTransition>
-           <div className="min-h-screen bg-background p-6">
-          <div className="max-w-[100rem] mx-auto space-y-12 text-start">
-    
-    
-          <div className="flex flex-col gap-6 justify-center items-center mb-6 md:flex-row md:justify-between md:mx-12">
-
-          <div className="flex items-center gap-4">
-            <div className="bg-red-600 rounded-lg px-6 hover:border-black text-lg p-2.5 mx-2 my-3 cursor-pointer hover:bg-orange-500 hover:text-black"
-              onClick={deleteExport}>
-              <span>Delete</span>
-            </div>
-</div>
-
-              <div className="flex justify-start text-2xl"> Container Name: {arr.name}</div>
-
-        </div>
-    
-
-    
-    {
-      error ? (<div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'> No Data Entry Found</div>
-      ):(
-        <div>
-          {
-            loading ? (<Loader/>
-            ):(
-              <div className="rounded-lg border bg-card">
-            <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/60">
-                    <TableHead>S No.</TableHead>
-                    <TableHead>Buyer Name</TableHead>
-                    <TableHead>Product Name</TableHead>
-                    <TableHead>Pack Size (kg)</TableHead>
-                    <TableHead>Pouch Goal</TableHead>
-                    <TableHead>Pouch Filled</TableHead>
-                    <TableHead>Pouch Packed</TableHead>
-                    <TableHead>Pouch Wasted (Dispatch)</TableHead>
-                    <TableHead>Remaining (By Filling)</TableHead>
-                    <TableHead>Remaining (By Dispatch)</TableHead>
-                  </TableRow>
-                </TableHeader>
-    
-
-{
-   arr && arr.list && arr.list.map((val,ind)=>(
-
-    <TableBody>
-
-      <TableRow key={ind} className={`${val.pouch - (array.filter( product => product.sectionMain === "Filling").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.pouchQuantity,0),0)) >= 0 ? "bg-red-600" : "bg-green-900" }`}>
-        <TableCell>{ind+1} </TableCell>
-        <TableCell>{val.buyerName} </TableCell>
-        <TableCell>{val.productName} </TableCell>
-        <TableCell>{val.packSize} </TableCell>
-        <TableCell>{val.pouch} </TableCell>
-        <TableCell>{array.filter( product => product.sectionMain === "Filling").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.pouchQuantity,0),0)} </TableCell>
-        <TableCell>{array.filter( product => product.sectionMain === "Dispatch").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.pouchPacked,0),0)} </TableCell>
-        <TableCell>{array.filter( product => product.sectionMain === "Dispatch").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.leaked,0),0)} </TableCell>
-        <TableCell>{val.pouch - (array.filter( product => product.sectionMain === "Filling").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.pouchQuantity,0),0))} </TableCell>
-        <TableCell>{val.pouch - (array.filter( product => product.sectionMain === "Dispatch").reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).reduce( (accumulator, object) => accumulator + object.pouchPacked,0),0))} </TableCell>
-      </TableRow>
-
-      {
-        array?.map((v)=>(
-          v.dataList.filter(item=>item.productName === val.productName && item.buyerName === val.buyerName && item.packSize === val.packSize && item.container === arr.name).map((val,ind)=>(
-          <TableRow key={ind} className="bg-slate-800">
-            <TableCell>{v.createdAt.slice(5,10)}</TableCell>
-            <TableCell>{val.buyerName}</TableCell>
-            <TableCell>{val.productName}</TableCell>
-            <TableCell>{val.packSize}</TableCell>
-            <TableCell>{val.batch}</TableCell>
-            <TableCell>{val.pouchQuantity}</TableCell>
-            <TableCell>{val.pouchPacked}</TableCell>
-            <TableCell>{val.leaked}</TableCell>
-            <TableCell>-</TableCell>
-            <TableCell>-</TableCell>
-          </TableRow>
-
-          ))
-        ))
-      }
-      
-    </TableBody>
-    ))
-}
-
-
-
-              </Table>
-            </div>
-            )
-          }
-        </div>
-      )
     }
-    
-          </div>
-        </div>
-        </PageTransition>
-       
-      );
-}
 
-export default Container
+    getInfo();
+    getData();
+  }, [userinfo.token, exportId, info]);
+
+  async function deleteExport() {
+    try {
+      setError(0);
+      setLoading(1);
+
+      await apiConnector(`${EXPORT_URL}/${exportId}`, "DELETE", null, {
+        Authorization: `Bearer ${userinfo.token}`,
+      });
+      toast("Deleted Successfully");
+      navigate("/admin/Container-List");
+    } catch (e) {
+      setError(1);
+      console.log(e);
+    }
+  }
+
+  return (
+    <PageTransition>
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6 text-start">
+          {/* Header Bar */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <button
+                  type="button"
+                  onClick={() => navigate("/admin/Container-List")}
+                  className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Containers
+                </button>
+                <span className="text-zinc-600 text-xs">•</span>
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Manifest Detail
+                </span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                <Box className="w-7 h-7 text-primary" />
+                Container: <span className="text-primary">{arr?.name || "Loading..."}</span>
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Per-SKU fulfillment reconciliation against planned container quota.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={deleteExport}
+                className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold cursor-pointer transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Manifest
+              </button>
+            </div>
+          </div>
+
+          {error ? (
+            <div className="py-24 text-center">
+              <p className="text-2xl font-bold text-zinc-400">No Data Entry Found</p>
+              <p className="text-xs text-zinc-600 mt-2">Could not retrieve details for this container.</p>
+            </div>
+          ) : (
+            <div>
+              {loading ? (
+                <Loader />
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+                  <div className="overflow-x-auto max-h-[44rem]">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                        <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">#</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer Name</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pack Size (Kg)</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Goal (Pouches)</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Filled</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Packed</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Loss (Disp)</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Rem. (Filling)</TableHead>
+                          <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Rem. (Dispatch)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+
+                      {arr && arr.list && (
+                        <TableBody>
+                          {arr.list.map((val, ind) => {
+                            const filledCount = array
+                              .filter((product) => product.sectionMain === "Filling")
+                              .reduce(
+                                (acc, obj) =>
+                                  acc +
+                                  obj.dataList
+                                    .filter(
+                                      (item) =>
+                                        item.productName === val.productName &&
+                                        item.buyerName === val.buyerName &&
+                                        item.packSize === val.packSize &&
+                                        item.container === arr.name
+                                    )
+                                    .reduce((accumulator, object) => accumulator + object.pouchQuantity, 0),
+                                0
+                              );
+
+                            const packedCount = array
+                              .filter((product) => product.sectionMain === "Dispatch")
+                              .reduce(
+                                (acc, obj) =>
+                                  acc +
+                                  obj.dataList
+                                    .filter(
+                                      (item) =>
+                                        item.productName === val.productName &&
+                                        item.buyerName === val.buyerName &&
+                                        item.packSize === val.packSize &&
+                                        item.container === arr.name
+                                    )
+                                    .reduce((accumulator, object) => accumulator + object.pouchPacked, 0),
+                                0
+                              );
+
+                            const leakedCount = array
+                              .filter((product) => product.sectionMain === "Dispatch")
+                              .reduce(
+                                (acc, obj) =>
+                                  acc +
+                                  obj.dataList
+                                    .filter(
+                                      (item) =>
+                                        item.productName === val.productName &&
+                                        item.buyerName === val.buyerName &&
+                                        item.packSize === val.packSize &&
+                                        item.container === arr.name
+                                    )
+                                    .reduce((accumulator, object) => accumulator + object.leaked, 0),
+                                0
+                              );
+
+                            const remFilling = val.pouch - filledCount;
+                            const remDispatch = val.pouch - packedCount;
+                            const isPending = remFilling > 0;
+
+                            return (
+                              <React.Fragment key={ind}>
+                                {/* Master Product Row */}
+                                <TableRow
+                                  className={`border-b border-white/10 transition-colors ${
+                                    isPending
+                                      ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]"
+                                      : "bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]"
+                                  }`}
+                                >
+                                  <TableCell className="font-mono text-xs text-zinc-400 py-3.5 font-bold">
+                                    {ind + 1}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-white font-semibold py-3.5">
+                                    {val.buyerName}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-white font-bold py-3.5 flex items-center gap-2">
+                                    <Layers className="w-3.5 h-3.5 text-primary" />
+                                    {val.productName}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs text-zinc-300 py-3.5">
+                                    {val.packSize} kg
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs text-primary font-bold py-3.5">
+                                    {val.pouch?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3.5">
+                                    {filledCount?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs text-cyan-400 font-bold py-3.5">
+                                    {packedCount?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs text-rose-400 py-3.5">
+                                    {leakedCount?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell
+                                    className={`font-mono text-xs font-bold py-3.5 ${
+                                      remFilling > 0 ? "text-amber-400" : "text-emerald-400"
+                                    }`}
+                                  >
+                                    {remFilling?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell
+                                    className={`font-mono text-xs font-bold py-3.5 ${
+                                      remDispatch > 0 ? "text-amber-400" : "text-emerald-400"
+                                    }`}
+                                  >
+                                    {remDispatch?.toLocaleString()}
+                                  </TableCell>
+                                </TableRow>
+
+                                {/* Per-Date Shift Production Breakdown */}
+                                {array?.map((v) =>
+                                  v.dataList
+                                    .filter(
+                                      (item) =>
+                                        item.productName === val.productName &&
+                                        item.buyerName === val.buyerName &&
+                                        item.packSize === val.packSize &&
+                                        item.container === arr.name
+                                    )
+                                    .map((subItem, subInd) => (
+                                      <TableRow
+                                        key={subInd}
+                                        className="bg-black/60 hover:bg-white/[0.02] border-b border-white/5 font-mono text-[13px] text-zinc-400"
+                                      >
+                                        <TableCell className="py-2 text-zinc-500 pl-6">
+                                          ↳ {v.createdAt?.slice(5, 10)}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-zinc-500">{subItem.buyerName}</TableCell>
+                                        <TableCell className="py-2 text-zinc-300">{subItem.productName}</TableCell>
+                                        <TableCell className="py-2 text-zinc-400">{subItem.packSize}</TableCell>
+                                        <TableCell className="py-2 text-zinc-500">
+                                          Batch #{subItem.batch}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-emerald-400">
+                                          {subItem.pouchQuantity || "—"}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-cyan-400">
+                                          {subItem.pouchPacked || "—"}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-rose-400">
+                                          {subItem.leaked || "—"}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-zinc-600">—</TableCell>
+                                        <TableCell className="py-2 text-zinc-600">—</TableCell>
+                                      </TableRow>
+                                    ))
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </TableBody>
+                      )}
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </PageTransition>
+  );
+};
+
+export default Container;

@@ -7,7 +7,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
 import Loader from '../../components/Loader'
-import { Sun, Moon,CheckCheck, Trash2, Check, CirclePlus } from "lucide-react";
+import { Sun, Moon, CheckCheck, Trash2, CirclePlus } from "lucide-react";
 import { Button } from "../../components/Buttons";
 import { Input } from "../../components/Input";
 import { setDate} from '../../redux/Slices/dateSlice';
@@ -158,154 +158,207 @@ const AllDataKitchen = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-
- <div className="max-w-[100rem] mx-auto space-y-12 text-start flex flex-col gap-10 md:gap-0">
- <div className='my-8 rounded-xl w-full h-12 flex justify-around items-center flex-wrap gap-6'>
-
-<div className="flex items-center space-x-4 mx-12">
-      <label className="text-lg text-muted-foreground">DataSheet for:</label>
-      <input
-        type="date"
-        value={date.date}
-        name='date'
-        onChange={(e)=>dispatch(setDate(e.target.value))}
-        className="border bg-[#22252a] border-border rounded-md px-3 py-1.5 text-md focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground shadow-md"
-      />
-</div>
-
-<Button
-  variant="ghost"
-  className={`w-12 h-12 p-0 rounded-full hover:bg-primary/20 transition-all duration-300 relative overflow-hidden ${
-  isDayShift ? 'bg-amber-400/10' : 'bg-blue-400/10'
-  }`}
-  onClick={() => setIsDayShift(!isDayShift)}
-  >
-  <div className={`transform transition-all duration-500 ${
-  isDayShift ? 'rotate-0 scale-100' : 'rotate-180 scale-0'
-  } absolute inset-0 flex items-center justify-center`}>
-  <Sun className={`w-6 h-6 ${
-  isDayShift ? 'text-amber-400' : 'text-blue-400'
-  }`} />
-  </div>
-  <div className={`transform transition-all duration-500 ${
-  !isDayShift ? 'rotate-0 scale-100' : 'rotate-180 scale-0'
-  } absolute inset-0 flex items-center justify-center`}>
-  <Moon className={`w-6 h-6 ${
-  !isDayShift ? 'text-blue-400' : 'text-amber-400'
-  }`} />
-  </div>
-</Button>
-
-
-<div className="flex items-center gap-4">
-            <div className="bg-[#1E1E1E] rounded-lg px-6 text-orange-500  border border-orange-500 hover:border-black text-lg p-2.5 mx-2 cursor-pointer hover:bg-orange-500 hover:text-black"
-                onClick={()=>submitHandler()}>
-              <span>Submit</span>
+    <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+      <div className="w-full space-y-6 text-start">
+        {/* Header Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                Data Entry Sheet
+              </span>
+              <span className="text-zinc-500 text-xs font-mono">• Kitchen Operations</span>
             </div>
-</div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Kitchen Shift Entry Log
+            </h1>
+            <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+              Log daily batches, expected output yield, and operator headcounts.
+            </p>
+          </div>
 
-</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
+              <span className="text-xs text-zinc-400 font-mono uppercase">Date:</span>
+              <input
+                type="date"
+                value={date.date}
+                name="date"
+                onChange={(e) => dispatch(setDate(e.target.value))}
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer"
+              />
+            </div>
 
+            <Button
+              variant="ghost"
+              className={`w-10 h-10 p-0 rounded-xl border border-white/10 transition-all duration-300 relative overflow-hidden ${
+                isDayShift ? "bg-amber-400/10 text-amber-400 border-amber-400/30" : "bg-indigo-400/10 text-indigo-400 border-indigo-400/30"
+              }`}
+              onClick={() => setIsDayShift(!isDayShift)}
+              title={isDayShift ? "Day Shift Active" : "Night Shift Active"}
+            >
+              <div
+                className={`transform transition-all duration-500 ${
+                  isDayShift ? "rotate-0 scale-100" : "rotate-180 scale-0"
+                } absolute inset-0 flex items-center justify-center`}
+              >
+                <Sun className="w-5 h-5 text-amber-400" />
+              </div>
+              <div
+                className={`transform transition-all duration-500 ${
+                  !isDayShift ? "rotate-0 scale-100" : "rotate-180 scale-0"
+                } absolute inset-0 flex items-center justify-center`}
+              >
+                <Moon className="w-5 h-5 text-indigo-400" />
+              </div>
+            </Button>
 
-{
-  loading ? (<Loader/>
-  ):(
-    <div className="rounded-lg border bg-card">
-  <Table>
-      <TableHeader>
-        <TableRow className="bg-muted/60">
-          <TableHead className="text-left">S No.</TableHead>
-          <TableHead>Buyer Name</TableHead>
-          <TableHead>Product Name</TableHead>
-          <TableHead>No. Of Batch</TableHead>
-          <TableHead>Yield (kg)</TableHead>
-          <TableHead>No. of Workers</TableHead>
-          <TableHead>Remarks</TableHead>
-          <TableHead>Delete</TableHead>
-        </TableRow>
-      </TableHeader>
+            <button
+              type="button"
+              className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer"
+              onClick={() => submitHandler()}
+            >
+              Submit Shift Sheet
+            </button>
+          </div>
+        </div>
 
-    <TableBody>
-        {
-          initalData[1]?.map((row,i) => (
-          <TableRow key={row.sNo} className="hover:bg-muted/50">
-            <TableCell>{i+1}</TableCell>
-            <TableCell>{row.buyerName}</TableCell>
-            <TableCell>{row.productName}</TableCell>
-            <TableCell>{row.batchQuantity}</TableCell>
-            <TableCell>{row.yield}</TableCell>
-            <TableCell>{row.workersQuantity}</TableCell>
-            <TableCell><CheckCheck className='h-6 w-6 mx-auto' color='#13c952'/></TableCell>
-            <TableCell><Trash2 className='h-6 w-6' color="#e01010" onClick={()=>deleteRow(i)}/></TableCell>
-          </TableRow>
-        ))} 
+        {loading ? (
+          <Loader />
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+            <div className="overflow-x-auto max-h-[44rem]">
+              <Table>
+                <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                  <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">#</TableHead>
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer Name</TableHead>
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Batches</TableHead>
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Yield (Kg)</TableHead>
+                    <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Workers</TableHead>
+                    <TableHead className="bg-[#141414] text-center text-xs font-mono py-3.5">Status</TableHead>
+                    <TableHead className="bg-[#141414] text-center text-xs font-mono py-3.5">Remove</TableHead>
+                  </TableRow>
+                </TableHeader>
 
-        <TableRow className="bg-muted/40">
-        <TableCell><CirclePlus className='h-5 w-5' color='#06a73f'/></TableCell>
-            <TableCell> <select
-             name='buyerName'
-             className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-             value={formData.buyerName}
-                 onChange={ e =>{
-                   inputHandler(e) 
-                   setbuyer(e.target.value.split("-")[1])
-                   }}
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-    {
-        categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={`${val._id}-${val.name}`} key={index}>{val.name}</option>))
-    }
-    </select> </TableCell>
+                <TableBody>
+                  {initalData[1]?.map((row, i) => (
+                    <TableRow key={row.sNo || i} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
+                      <TableCell className="font-mono text-xs text-zinc-500 py-3">{i + 1}</TableCell>
+                      <TableCell className="text-zinc-300 text-xs py-3">{row.buyerName}</TableCell>
+                      <TableCell className="text-white font-semibold text-xs py-3">{row.productName}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-200 py-3">{row.batchQuantity}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-300 py-3">{row.yield}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-300 py-3">{row.workersQuantity}</TableCell>
+                      <TableCell className="py-3 text-center">
+                        <CheckCheck className="h-5 w-5 mx-auto text-emerald-400" />
+                      </TableCell>
+                      <TableCell className="py-3 text-center">
+                        <Trash2
+                          className="h-4 w-4 mx-auto text-rose-400 hover:text-rose-300 cursor-pointer transition-colors"
+                          onClick={() => deleteRow(i)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
 
-            <TableCell>  <select
-           name='productName'
-           className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-           value={formData.productName}
-           onChange={ e => inputHandler(e) }
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-    {
-      products?.filter((product) => product.buyer === buyer).map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-    }
-    </select> </TableCell>
+                  {/* Add Row Form Inputs */}
+                  <TableRow className="bg-white/[0.02] border-t-2 border-primary/30">
+                    <TableCell className="py-3">
+                      <CirclePlus className="h-5 w-5 text-primary" />
+                    </TableCell>
+                    <TableCell className="py-3">
+                      <select
+                        name="buyerName"
+                        className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                        value={formData.buyerName}
+                        onChange={(e) => {
+                          inputHandler(e);
+                          setbuyer(e.target.value.split("-")[1]);
+                        }}
+                      >
+                        <option value="">Select Buyer</option>
+                        {categories.map((val, index) => (
+                          <option value={`${val._id}-${val.name}`} key={index}>
+                            {val.name}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
 
-            <TableCell> <Input type='number'
-                 name='batchQuantity'
-                 value={formData.batchQuantity}
-                 onChange={ e => inputHandler(e) }
-            ></Input> </TableCell>
+                    <TableCell className="py-3">
+                      <select
+                        name="productName"
+                        className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                        value={formData.productName}
+                        onChange={(e) => inputHandler(e)}
+                      >
+                        <option value="">Select Product</option>
+                        {products
+                          ?.filter((product) => product.buyer === buyer)
+                          .map((val, index) => (
+                            <option value={val.name} key={index}>
+                              {val.name}
+                            </option>
+                          ))}
+                      </select>
+                    </TableCell>
 
-            <TableCell> <Input type='number'
-                 value={formData.yield}
-                 name='yield'
-                 onChange={ e => inputHandler(e) }
-            ></Input> </TableCell>
+                    <TableCell className="py-3">
+                      <Input
+                        type="number"
+                        placeholder="Batches"
+                        name="batchQuantity"
+                        value={formData.batchQuantity}
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs font-mono focus:border-primary"
+                      />
+                    </TableCell>
 
-            <TableCell><Input type='number'
-                 name='workersQuantity'
-                 value={formData.workersQuantity}
-                 onChange={ e => inputHandler(e) }
-            ></Input> </TableCell>
+                    <TableCell className="py-3">
+                      <Input
+                        type="number"
+                        placeholder="Yield"
+                        value={formData.yield}
+                        name="yield"
+                        step="any"
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs font-mono focus:border-primary"
+                      />
+                    </TableCell>
 
-            <TableCell><Check className="w-6 h-6 mx-auto hover:bg-gray-700" 
-                              color="#e01010"
-                              onClick={rowDataHandler}
-                              /></TableCell>
-            <TableCell></TableCell>
-          </TableRow>
-      </TableBody>
-            
-  
+                    <TableCell className="py-3">
+                      <Input
+                        type="number"
+                        placeholder="Workers"
+                        name="workersQuantity"
+                        value={formData.workersQuantity}
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs font-mono focus:border-primary"
+                      />
+                    </TableCell>
 
-    </Table>
-  </div>
-  )
-}
-  </div>
-
+                    <TableCell className="py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={rowDataHandler}
+                        className="px-3 py-1.5 bg-primary hover:bg-amber-400 text-black font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
+                        title="Append batch row"
+                      >
+                        + Add
+                      </button>
+                    </TableCell>
+                    <TableCell className="py-3"></TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default AllDataKitchen
+export default AllDataKitchen;

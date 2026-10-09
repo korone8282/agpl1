@@ -1,228 +1,274 @@
-import React, {useState, useEffect} from 'react'
+import React, { useState, useEffect } from 'react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { toast } from 'react-toastify';
 import { CATEGORIES_URL, PRODUCT_URL, EXPORT_URL } from '../../redux/Utils/constants';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
-import Loader from '../../components/Loader'
-import { CheckCheck, Trash2, Check, CirclePlus } from "lucide-react";
+import Loader from '../../components/Loader';
+import { CheckCheck, Trash2, CirclePlus, Box } from "lucide-react";
 import { Input } from "../../components/Input";
 import { useSelector } from 'react-redux';
 import PageTransition from '../PageTransition';
 
 const Exports = () => {
-
   const [products, setproducts] = useState([]);
-  const [categories, setcategories] = useState([]); 
+  const [categories, setcategories] = useState([]);
   const [loading, setLoading] = useState(1);
   const [info, setInfo] = useState({
-    buyerName:"",
-    productName:"",
-    pouch:"",
-    packSize:"",
+    buyerName: "",
+    productName: "",
+    pouch: "",
+    packSize: "",
   });
   const [name, setName] = useState("C1");
-  const [arr] = useState([]);
-  
-  const {userinfo} = useSelector(state=>state.auth)
+  const [arr, setArr] = useState([]);
+
+  const { userinfo } = useSelector((state) => state.auth);
 
   useEffect(() => {
-
-    async function getCategories(){
+    async function getCategories() {
       try {
-       const res = await apiConnector(`${CATEGORIES_URL}/categories`,"GET");
-       setcategories(res.data.data);
-       setLoading(0);
+        const res = await apiConnector(`${CATEGORIES_URL}/categories`, "GET");
+        setcategories(res.data.data);
+        setLoading(0);
       } catch (error) {
         console.log(error);
       }
     }
 
-    async function getProducts(){
+    async function getProducts() {
       try {
-
-    const res = await apiConnector(`${PRODUCT_URL}/products`,"GET");
-    setproducts(res.data.data);
-
+        const res = await apiConnector(`${PRODUCT_URL}/products`, "GET");
+        setproducts(res.data.data);
       } catch (error) {
         console.log(error);
       }
-      }
+    }
 
     getCategories();
     getProducts();
-
   }, []);
 
-const inputHandler = async(e) =>{
-        setInfo((prevData) => ({
-          ...prevData,
-          [e.target.name]: e.target.value
-        }));
-      }
+  const inputHandler = async (e) => {
+    setInfo((prevData) => ({
+      ...prevData,
+      [e.target.name]: e.target.value,
+    }));
+  };
 
-  const submitHandler = async() =>{
+  const submitHandler = async () => {
+    if (!name.trim()) {
+      toast("Please enter container name");
+      return;
+    }
+    if (arr.length === 0) {
+      toast("Please add at least one SKU to the manifest");
+      return;
+    }
 
-    
-    const toastId = toast.loading("Loading...",{
+    const toastId = toast.loading("Loading...", {
       position: 'top-center',
-    }); 
+    });
 
-   try {
+    try {
+      await apiConnector(`${EXPORT_URL}/${name}`, "POST", arr, {
+        Authorization: `Bearer ${userinfo.token}`,
+      });
 
-    await apiConnector(`${EXPORT_URL}/${name}`,"POST",arr,{Authorization: `Bearer ${userinfo.token}`});
+      toast.dismiss(toastId);
+      toast("Successfully Submited");
 
-    toast.dismiss(toastId);
-    toast("Successfully Submited");
-    
-    window.location.reload();
-   } catch (error) {
-    toast.dismiss(toastId);
-    toast(error.response.data.message)
-   }
-  }
+      window.location.reload();
+    } catch (error) {
+      toast.dismiss(toastId);
+      toast(error?.response?.data?.message || "Error submitting export");
+    }
+  };
 
-  const rowDataHandler = () =>{
-    
-   arr.push(info)
-
-    setInfo({
-        buyerName:"",
-        productName:"",
-        pouch:"",
-        packSize:"",
-  });
-
-  }
-
-const deleteHandler = (i) =>{
-    
-   arr.splice(i,1);
+  const rowDataHandler = () => {
+    if (!info.buyerName || !info.productName) {
+      toast("Please select both buyer and product");
+      return;
+    }
+    setArr((prev) => [...prev, { ...info }]);
 
     setInfo({
-        buyerName:"",
-        productName:"",
-        pouch:"",
-        packSize:"",
-  });
+      buyerName: "",
+      productName: "",
+      pouch: "",
+      packSize: "",
+    });
+  };
 
-  }
-
+  const deleteHandler = (i) => {
+    setArr((prev) => prev.filter((_, index) => index !== i));
+  };
 
   return (
-  <PageTransition>
-     <div className="min-h-screen bg-background p-6">
+    <PageTransition>
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6 text-start">
+          {/* Header Bar */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Export Operations
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Manifest Builder</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+                <Box className="w-7 h-7 text-primary" />
+                Create Export Container
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Configure container identifier and allocate SKU quotas for export order fulfillment.
+              </p>
+            </div>
 
-<div className="max-w-[100rem] mx-auto space-y-12 text-start">
-<div className='my-8 rounded-xl w-full h-12 -mx-9 flex justify-around items-center'>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
+                <span className="text-xs text-zinc-400 font-mono uppercase">Container ID:</span>
+                <input
+                  type="text"
+                  value={name}
+                  placeholder="e.g. C1, EXP-2026-01"
+                  onChange={(e) => setName(e.target.value)}
+                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none w-32"
+                />
+              </div>
 
-<div className="flex items-center space-x-4 mx-12">
-     <label className="text-xl text-muted-foreground">Container Name</label>
-     <Input
-       type="name"
-       onChange={ e => setName(e.target.value) }
-       className="border bg-[#22252a] border-border rounded-md px-3 py-1.5 text-md focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground shadow-md"
-     />
-</div>
+              <button
+                type="button"
+                onClick={submitHandler}
+                className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer"
+              >
+                Save & Initialize Container
+              </button>
+            </div>
+          </div>
 
-<div className="flex items-center gap-4">
-           <div className="bg-[#1E1E1E] rounded-lg px-6 text-orange-500  border border-orange-500 hover:border-black text-lg p-3 mx-2 cursor-pointer hover:bg-orange-500 hover:text-black"
-               onClick={submitHandler}>
-             <span>Submit</span>
-           </div>
-</div>
+          {loading ? (
+            <Loader />
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div className="overflow-x-auto max-h-[44rem]">
+                <Table>
+                  <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                    <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">#</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer Name</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Size (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Required Pouches</TableHead>
+                      <TableHead className="bg-[#141414] text-center text-xs font-mono py-3.5">Status</TableHead>
+                      <TableHead className="bg-[#141414] text-center text-xs font-mono py-3.5">Remove</TableHead>
+                    </TableRow>
+                  </TableHeader>
 
-</div>
+                  <TableBody>
+                    {arr?.map((row, i) => (
+                      <TableRow key={i} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
+                        <TableCell className="font-mono text-xs text-zinc-500 py-3">{i + 1}</TableCell>
+                        <TableCell className="text-zinc-300 text-xs py-3">{row.buyerName}</TableCell>
+                        <TableCell className="text-white font-semibold text-xs py-3">{row.productName}</TableCell>
+                        <TableCell className="font-mono text-xs text-zinc-300 py-3">{row.packSize}</TableCell>
+                        <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3">{row.pouch}</TableCell>
+                        <TableCell className="py-3 text-center">
+                          <CheckCheck className="h-5 w-5 mx-auto text-emerald-400" />
+                        </TableCell>
+                        <TableCell className="py-3 text-center">
+                          <Trash2
+                            className="h-4 w-4 mx-auto text-rose-400 hover:text-rose-300 cursor-pointer transition-colors"
+                            onClick={() => deleteHandler(i)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
 
+                    {/* Add Row Form Inputs */}
+                    <TableRow className="bg-white/[0.02] border-t-2 border-primary/30">
+                      <TableCell className="py-3">
+                        <CirclePlus className="h-5 w-5 text-primary" />
+                      </TableCell>
 
-{
- loading ? (<Loader/>
- ):(
-   <div className="rounded-lg border bg-card">
- <Table>
-     <TableHeader>
-       <TableRow className="bg-muted/60">
-         <TableHead className="text-left">S No.</TableHead>
-         <TableHead>Buyer Name</TableHead>
-         <TableHead>Product Name</TableHead>
-         <TableHead>Pouch Size (kg)</TableHead>
-         <TableHead>Required Pouches</TableHead>
-         <TableHead>Remarks</TableHead>
-         <TableHead>Delete</TableHead>
-       </TableRow>
-     </TableHeader>
+                      <TableCell className="py-3">
+                        <select
+                          className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                          name="buyerName"
+                          value={info.buyerName}
+                          onChange={(e) => inputHandler(e)}
+                        >
+                          <option value="">Select Buyer</option>
+                          {categories.map((val, index) => (
+                            <option value={`${val.name}`} key={index}>
+                              {val.name}
+                            </option>
+                          ))}
+                        </select>
+                      </TableCell>
 
-   <TableBody>
-       {
-         arr?.map((row,i) => (
-         <TableRow key={i} className="hover:bg-muted/50">
-           <TableCell>{i+1}</TableCell>
-           <TableCell>{row.buyerName}</TableCell>
-           <TableCell>{row.productName}</TableCell>
-           <TableCell>{row.packSize}</TableCell>
-           <TableCell>{row.pouch}</TableCell>
-           <TableCell><CheckCheck className='h-6 w-6 mx-auto' color='#13c952'/></TableCell>
-           <TableCell><Trash2 className='h-6 w-6' color="#e01010" onClick={()=>deleteHandler(i)}/></TableCell>
-         </TableRow>
-       ))}
+                      <TableCell className="py-3">
+                        <select
+                          name="productName"
+                          className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                          value={info.productName}
+                          onChange={(e) => inputHandler(e)}
+                        >
+                          <option value="">Select Product</option>
+                          {products
+                            ?.filter((product) => product.buyer === info.buyerName)
+                            .map((val, index) => (
+                              <option value={val.name} key={index}>
+                                {val.name}
+                              </option>
+                            ))}
+                        </select>
+                      </TableCell>
 
-       <TableRow className="hover:bg-muted/50">
-       <TableCell><CirclePlus className='h-5 w-5' color='#06a73f'/></TableCell>
-           <TableCell> <select
-            className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            name='buyerName'
-            value={info.buyerName}
-            onChange={ e => inputHandler(e)}
-   >
-   <option selected={true} className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-   {
-       categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={`${val.name}`} key={index}>{val.name}</option>))
-   }
-   </select> </TableCell>
+                      <TableCell className="py-3">
+                        <Input
+                          type="number"
+                          placeholder="Pack Size"
+                          name="packSize"
+                          value={info.packSize}
+                          onChange={(e) => inputHandler(e)}
+                          className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs font-mono focus:border-primary"
+                        />
+                      </TableCell>
 
-           <TableCell>  <select
-          name='productName'
-          className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value={info.productName}
-          onChange={ e => inputHandler(e) }
-   >
-   <option selected={true} className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-   {
-     products?.filter((product) => product.buyer === info.buyerName).map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-   }
-   </select> </TableCell>
+                      <TableCell className="py-3">
+                        <Input
+                          type="number"
+                          placeholder="Target Pouches"
+                          name="pouch"
+                          value={info.pouch}
+                          onChange={(e) => inputHandler(e)}
+                          className="w-full px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs font-mono focus:border-primary"
+                        />
+                      </TableCell>
 
-           <TableCell> <Input type='number'
-                name='packSize'
-                value={info.packSize}
-                onChange={ e => inputHandler(e) }
-           ></Input> </TableCell>
+                      <TableCell className="py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={rowDataHandler}
+                          className="px-3 py-1.5 bg-primary hover:bg-amber-400 text-black font-bold text-xs rounded-lg transition-all cursor-pointer shadow-sm"
+                          title="Append SKU quota"
+                        >
+                          + Add
+                        </button>
+                      </TableCell>
 
-           <TableCell> <Input type='number'
-                 name='pouch'
-                 value={info.pouch}
-                onChange={ e => inputHandler(e) }
-           ></Input> </TableCell>
+                      <TableCell className="py-3 text-center text-xs text-zinc-600 font-mono">—</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </PageTransition>
+  );
+};
 
-           <TableCell><Check className="w-6 h-6 mx-auto hover:bg-gray-700" 
-                             color="#e01010"
-                             onClick={rowDataHandler}
-                             /></TableCell>
-           <TableCell>---</TableCell>
-         </TableRow>
-     </TableBody>
-           
- 
-
-   </Table>
- </div>
- )
-}
- </div>
-
-   </div>
-  </PageTransition>
-   
-  )
-}
-
-export default Exports
+export default Exports;

@@ -218,79 +218,95 @@ exports.updateDispProduct = async(req,res) => {
                 }
 
 
-                exports.updatePouches = async(req,res) => {
-                    try {
-                          
-                    const existProduct = await Product.findOne({_id:req.params.id});
-                        
-                    const {buyer,pouches,month,product,mode,date} = req.body;
-                    const monthIndex = Number(month) - 1;
-                    const qty = parseInt(pouches, 10);
-    
-                    const days = [31,29,31,30,31,30,31,31,30,31,30,31];
-                        
-                    const startDate = new Date(`2026-${month}-01`);
-                    startDate.setHours(0, 0, 0, 0);
-                    const endDate = new Date(`2026-${month}-${days[monthIndex]}`);
-                    endDate.setHours(23, 59, 59, 999);
-    
-                    const existData = await Data.find({createdAt:{
-                        $gte:startDate,
-                        $lte:endDate
-                    } });
-    
-                    if(!existProduct){
-                      return res.status(500).json({
-                            message:"Product doesn't exists",
-                        });
-                    }
-    
-                    if (pouches === undefined || pouches === null || pouches === "") {
-                      return res.status(400).json({
-                            message:"Pouch count is required",
-                        });
-                    }
-    
-                    if (Number.isNaN(qty)) {
-                      return res.status(400).json({ message: "Invalid pouch count" });
-                    }
-    
-                        const { filled, waste } = sumFillingUsage(existData, product, buyer);
-                        const pouchMonth = existProduct.pouches[monthIndex];
-                        if (!Array.isArray(pouchMonth.entries)) {
-                            pouchMonth.entries = [];
-                        }
-    
-                        if (mode === "add") {
-                            if (!date) {
-                              return res.status(400).json({ message: "Date is required to add pouches" });
+function sumFillingUsage(existData, productName, buyerName) {
+                let filled = 0;
+                let waste = 0;
+                existData
+                    .filter((doc) => doc.sectionMain === "Filling")
+                    .forEach((doc) => {
+                        (doc.dataList || []).forEach((item) => {
+                            if (item.productName === productName && item.buyerName === buyerName) {
+                                filled += Number(item.pouchQuantity) || 0;
+                                waste += Number(item.empty) || 0;
                             }
-                            pouchMonth.stock = (Number(pouchMonth.stock) || 0) + qty;
-                            pouchMonth.entries.push({ date, quantity: qty });
-                        } else {
-                            // Update sets total Pouches (IN) for the month
-                            pouchMonth.stock = qty;
-                        }
-    
-                        // Ending balance = previous month's remain + stock - filled - waste
-                        const prevBalance = monthIndex === 0
-                            ? 0
-                            : (Number(existProduct.pouches[monthIndex - 1]?.remain) || 0);
-                        pouchMonth.remain = prevBalance + (Number(pouchMonth.stock) || 0) - filled - waste;
-                        
-                        await existProduct.save();
-                    
-                        res.status(200).json({
-                            success:true,
                         });
+                    });
+                return { filled, waste };
+                }
+
+exports.updatePouches = async(req,res) => {
+                try {
+                      
+                const existProduct = await Product.findOne({_id:req.params.id});
                     
-                    } catch (error) {
-                        console.log(error);
-                        res.status(400).json({
-                            message:error
-                        })
+                const {buyer,pouches,month,product,mode,date} = req.body;
+                const monthIndex = Number(month) - 1;
+                const qty = parseInt(pouches, 10);
+
+                const days = [31,29,31,30,31,30,31,31,30,31,30,31];
+                    
+                const startDate = new Date(`2026-${month}-01`);
+                startDate.setHours(0, 0, 0, 0);
+                const endDate = new Date(`2026-${month}-${days[monthIndex]}`);
+                endDate.setHours(23, 59, 59, 999);
+
+                const existData = await Data.find({createdAt:{
+                    $gte:startDate,
+                    $lte:endDate
+                } });
+
+                if(!existProduct){
+                  return res.status(500).json({
+                        message:"Product doesn't exists",
+                    });
+                }
+
+                if (pouches === undefined || pouches === null || pouches === "") {
+                  return res.status(400).json({
+                        message:"Pouch count is required",
+                    });
+                }
+
+                if (Number.isNaN(qty)) {
+                  return res.status(400).json({ message: "Invalid pouch count" });
+                }
+
+                    const { filled, waste } = sumFillingUsage(existData, product, buyer);
+                    const pouchMonth = existProduct.pouches[monthIndex];
+                    if (!Array.isArray(pouchMonth.entries)) {
+                        pouchMonth.entries = [];
                     }
+
+                    if (mode === "add") {
+                        if (!date) {
+                          return res.status(400).json({ message: "Date is required to add pouches" });
+                        }
+                        pouchMonth.stock = (Number(pouchMonth.stock) || 0) + qty;
+                        pouchMonth.entries.push({ date, quantity: qty });
+                    } else {
+                        // Update sets total Pouches (IN) for the month
+                        pouchMonth.stock = qty;
                     }
+
+                    // Ending balance = previous month's remain + stock - filled - waste
+                    const prevBalance = monthIndex === 0
+                        ? 0
+                        : (Number(existProduct.pouches[monthIndex - 1]?.remain) || 0);
+                    pouchMonth.remain = prevBalance + (Number(pouchMonth.stock) || 0) - filled - waste;
+                    
+                    await existProduct.save();
+                
+                    res.status(200).json({
+                        success:true,
+                    });
+                
+                } catch (error) {
+                    console.log(error);
+                    res.status(400).json({
+                        message:error
+                    })
+                }
+                }
 
 exports.updaterOne = async(req,res) => {
                 try {
@@ -318,7 +334,13 @@ exports.updaterOne = async(req,res) => {
 
                 newProduct.dispatched[i-1].balance = ( existData.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === newProduct.name && item.buyerName === newProduct.buyer).reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0) -  ( newProduct.dispatched[i-1].dispatch ? newProduct.dispatched[i-1].dispatch : 0 ))  
                    
-                newProduct.pouches[i-1].remain = ((newProduct.pouches[i-1].stock ? newProduct.pouches[i-1].stock : 0) -  (existData.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === newProduct.name && item.buyerName === newProduct.buyer).reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0) + existData.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === newProduct.name && item.buyerName === newProduct.buyer).reduce( (accumulator, obj) => accumulator + obj.empty,0),0)))  
+                const { filled, waste } = sumFillingUsage(existData, newProduct.name, newProduct.buyer);
+                const stock = Number(newProduct.pouches[i-1].stock) || 0;
+                const prevBalance = i === 1
+                    ? 0
+                    : (Number(newProduct.pouches[i - 2]?.remain) || 0);
+                // Store ending balance so next month can use it as Previous Balance
+                newProduct.pouches[i-1].remain = prevBalance + stock - filled - waste;
 
                 await newProduct.save();
 

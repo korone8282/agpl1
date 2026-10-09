@@ -120,197 +120,269 @@ const Dispatched = () => {
         }));
       }
 
-      return (
+  return (
     <PageTransition>
-      <div className="min-h-screen bg-background p-6">
-          <div className="max-w-[100rem] mx-auto space-y-12 text-start">
-  
-  <div className="flex flex-col justify-center items-center mb-6 md:flex-row md:justify-between">
-
-  <div className='flex gap-40 md:flex-row'>
-      <div className="mb-4">
-                      <label className="block text-muted-foreground mb-1">Buyer Name</label>
-                      <select
-              name='buyer'
-              className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={ e => inputHandler(e) }
-          >
-          <option className=' bg-[#2e3138] text-muted-foreground '>Select</option>
-          {
-              categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' 
-                                                   key={index} 
-                                                   value={val.name}> {val.name}</option>))
-          }
-          </select>
-      </div>
-
-      <div>
-          <h2 className="text-xl font-semibold">Monthly Data For <span className='text-primary'>{months[month-1].month}</span> </h2>
-
-          <div className="flex items-center gap-2 bg-card">
-     <Popover open={isOpen} onOpenChange={setIsOpen}>
-       <PopoverTrigger asChild>
-         <Button variant="outline" className="border-primary text-primary hover:bg-primary/10 my-5">
-           Month
-         </Button>
-       </PopoverTrigger>
-       <PopoverContent className="w-[280px] p-2 bg-card border-primary" onClick={() =>setIsOpen(0)}>
-         <div className="grid grid-cols-3 gap-2">
-           {months.map((month,index) => (
-             <Button
-               key={month.month}
-               variant="ghost"
-               onClick={()=>{
-                setmonth(index+1);
-                setInfo((prevData) => ({
-                    ...prevData,
-                    month: index+1
-                  })); 
-               }}>
-               {month.month}
-             </Button>
-           ))}
-         </div>
-       </PopoverContent>
-     </Popover>
-   </div>
-        </div>
-  </div>
-
-              <Link className="flex items-center gap-4"
-                    to="Dispatch-Report">
-            <div className="bg-[#1E1E1E] rounded-lg px-6 text-orange-500  border border-orange-500 hover:border-black text-lg p-2.5 mx-2 my-3 cursor-pointer hover:bg-orange-500 hover:text-black"
-                 >
-              <span>Report</span>
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6 text-start">
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Logistics & Outbound
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Dispatch Ledger</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Dispatched Stock: <span className="text-primary">{months[month - 1].month}</span>
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Outbound deliveries, boxed goods reconciliation, and finished inventory remaining.
+              </p>
             </div>
-</Link>
 
-        </div>
+            {/* Controls & Report Link */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-mono uppercase text-zinc-400">Buyer:</label>
+                <select
+                  name="buyer"
+                  className="px-4 py-2 bg-black border border-white/10 rounded-xl text-white text-xs font-semibold focus:outline-none focus:border-primary transition-all"
+                  onChange={(e) => inputHandler(e)}
+                  value={info.buyer}
+                >
+                  <option value="">Select Buyer</option>
+                  {categories.map((val, index) => (
+                    <option key={index} value={val.name}>
+                      {val.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-    {
-      error ? (<div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'> No Data Entry Found</div>
-      ):(
-        <div>
-          {
-            loading ? (<Loader/>
-            ):(
-              <div className="rounded-lg border bg-card max-h-[35rem] overflow-auto">
-            <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/60">
-                    <TableHead>S. No.</TableHead>
-                    <TableHead>Product Name</TableHead>
-                    <TableHead>Previous Balance</TableHead>
-                    <TableHead>Production (kg)</TableHead>
-                    <TableHead>Pouch Filled</TableHead>
-                    <TableHead>Pouch Packed</TableHead>
-                    <TableHead>Pouch Dispatched</TableHead>
-                    <TableHead>Difference</TableHead>
-                    <TableHead>Current Balance</TableHead>
-                  </TableRow>
-                </TableHeader>
-    
-          <TableBody>
-              {
-                products.filter(product=> product.buyer === info.buyer).map((element,i)=>(
-                <TableRow key={i} 
-                          className="hover:bg-muted/50"
-                          onClick={()=>{
-                            setopenBox2(!openBox2)
-                            setId(element._id)
+              <Popover open={isOpen} onOpenChange={setIsOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="border border-white/10 bg-white/5 hover:bg-white/10 hover:border-primary/50 text-white rounded-xl px-4 py-2 text-xs font-semibold tracking-wider transition-all"
+                  >
+                    📅 {months[month - 1].month}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-3 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {months.map((monthItem, index) => (
+                      <Button
+                        key={monthItem.month}
+                        variant="ghost"
+                        className="text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                        onClick={() => {
+                          setmonth(index + 1);
+                          setInfo((prevData) => ({
+                            ...prevData,
+                            month: index + 1,
+                          }));
+                          setIsOpen(false);
+                        }}
+                      >
+                        {monthItem.month}
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <Link to="Dispatch-Report">
+                <button className="px-4 py-2 rounded-xl bg-primary/10 hover:bg-primary hover:text-black text-primary border border-primary/30 text-xs font-bold transition-all shadow-sm">
+                  📊 View Dispatch Report
+                </button>
+              </Link>
+            </div>
+          </div>
+
+          {error ? (
+            <div className="w-full p-16 text-center bg-white/[0.02] border border-white/10 rounded-2xl">
+              <p className="text-xl font-bold text-zinc-400">No Data Entry Found</p>
+              <p className="text-xs text-zinc-500 mt-1">Please select a valid buyer or check data logs.</p>
+            </div>
+          ) : loading ? (
+            <Loader />
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div className="overflow-x-auto max-h-[44rem]">
+                <Table>
+                  <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                    <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">#</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Prev Balance</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Production (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Filled</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Packed</TableHead>
+                      <TableHead className="bg-[#141414] text-primary text-xs font-mono py-3.5">Dispatched</TableHead>
+                      <TableHead className="bg-[#141414] text-amber-400 text-xs font-mono py-3.5">Difference</TableHead>
+                      <TableHead className="bg-[#141414] text-emerald-400 text-xs font-mono py-3.5">Current Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {products
+                      .filter((product) => product.buyer === info.buyer)
+                      .map((element, i) => (
+                        <TableRow
+                          key={i}
+                          className="hover:bg-white/[0.04] border-b border-white/5 cursor-pointer transition-colors"
+                          onClick={() => {
+                            setopenBox2(!openBox2);
+                            setId(element._id);
                             setInfo((prevData) => ({
                               ...prevData,
-                              product:element.name
-                            }))
-                          }}>
-                  <TableCell>{i+1}</TableCell>
-                  <TableCell>{element.name}</TableCell>
-                  <TableCell>{element.dispatched.filter( item => item.month < month).reduce( (accumulator, obj) => accumulator + obj.balance ,0)}</TableCell>
-                  <TableCell>{sectionData.reduce((acc,obj)=> acc+obj.filter(item=>item.productName === element.name).reduce( (accumulator, obj) => accumulator + obj.yield*obj.batchQuantity,0),0).toFixed(2)}</TableCell>
-                  <TableCell>{sectionData.reduce((acc,obj)=> acc+obj.filter(item=>item.productName === element.name).reduce( (accumulator, obj) => accumulator + obj.pouchQuantity,0),0)}</TableCell>
-                  <TableCell>{sectionData.reduce((acc,obj)=> acc+obj.filter(item=>item.productName === element.name).reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0)}</TableCell>
-                  <TableCell>{element.dispatched[month-1]?.dispatch}</TableCell>
-                  <TableCell>{(sectionData.reduce((acc,obj)=> acc+obj.filter(item=>item.productName === element.name).reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0) -element.dispatched[month-1]?.dispatch)}</TableCell>
-                  <TableCell>{element.dispatched.filter( item => item.month <= month).reduce( (accumulator, obj) => accumulator + obj.balance,0)}</TableCell>
-                </TableRow>
-              ))
-              }
-            </TableBody>
-
-              </Table>
+                              product: element.name,
+                            }));
+                          }}
+                        >
+                          <TableCell className="font-mono text-xs text-zinc-500 py-3.5">{i + 1}</TableCell>
+                          <TableCell className="font-semibold text-white py-3.5">{element.name}</TableCell>
+                          <TableCell className="font-mono text-xs text-zinc-400 py-3.5">
+                            {element.dispatched
+                              .filter((item) => item.month < month)
+                              .reduce((accumulator, obj) => accumulator + obj.balance, 0)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-zinc-300 py-3.5">
+                            {sectionData
+                              .reduce(
+                                (acc, obj) =>
+                                  acc +
+                                  obj
+                                    .filter((item) => item.productName === element.name)
+                                    .reduce((accumulator, obj) => accumulator + obj.yield * obj.batchQuantity, 0),
+                                0
+                              )
+                              .toFixed(2)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-zinc-300 py-3.5">
+                            {sectionData.reduce(
+                              (acc, obj) =>
+                                acc +
+                                obj
+                                  .filter((item) => item.productName === element.name)
+                                  .reduce((accumulator, obj) => accumulator + obj.pouchQuantity, 0),
+                              0
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-zinc-300 py-3.5">
+                            {sectionData.reduce(
+                              (acc, obj) =>
+                                acc +
+                                obj
+                                  .filter((item) => item.productName === element.name)
+                                  .reduce((accumulator, obj) => accumulator + obj.pouchPacked, 0),
+                              0
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-primary font-bold py-3.5">
+                            {element.dispatched[month - 1]?.dispatch}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-amber-400 py-3.5">
+                            {sectionData.reduce(
+                              (acc, obj) =>
+                                acc +
+                                obj
+                                  .filter((item) => item.productName === element.name)
+                                  .reduce((accumulator, obj) => accumulator + obj.pouchPacked, 0),
+                              0
+                            ) - (element.dispatched[month - 1]?.dispatch || 0)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3.5">
+                            {element.dispatched
+                              .filter((item) => item.month <= month)
+                              .reduce((accumulator, obj) => accumulator + obj.balance, 0)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-            )
-          }
-        </div>
-      )
-    }
+          )}
 
-{
-            openBox2 ? (
-      <div className="space-y-5 fixed h-fit inset-0 mx-auto top-40 bg-background p-5 shadow-black/70 shadow-2xl w-fit rounded-lg">
-        <div className='flex justify-between items-center gap-3'>
-          <label htmlFor="confirPassword" className='text-md'>
-             Dispatched
-          </label>
-          <Input type='number'
-                 id="confirmPassword" 
-                 name = "dispatched"
-                 onChange={ e => inputHandler(e) }
-                 className='border-2 border-[#f59e0b]'
-                       />
-        </div>
+          {/* Update Modal */}
+          {openBox2 && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e0e] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl relative space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h3 className="text-base font-bold text-white">Record Dispatch: {info.product}</h3>
+                  <button onClick={() => setopenBox2(0)} className="text-zinc-400 hover:text-white text-xs">
+                    ✕
+                  </button>
+                </div>
 
-        <div className='flex justify-between items-center gap-3'>
-          <label htmlFor="confirPassword" className='text-md'>
-              Box
-          </label>
-          <Input type='number'
-                 id="confirmPassword" 
-                 name = "box"
-                 onChange={ e => inputHandler(e) }
-                 className='border-2 border-[#f59e0b]'
-                       />
-        </div>
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="dispatched" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Pouches Dispatched
+                    </label>
+                    <Input
+                      type="number"
+                      id="confirmPassword"
+                      name="dispatched"
+                      placeholder="e.g. 2400"
+                      onChange={(e) => inputHandler(e)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-primary text-sm font-mono"
+                    />
+                  </div>
 
-        <div className='flex justify-between items-center'>
-          <label htmlFor="Datex" className='text-md'>
-              Issued On
-          </label>
-          <Input type='date' 
-                 id="Datex" 
-                 name="issue" 
-                 onChange={ e => inputHandler(e) }
-                 />
-        </div>
+                  <div>
+                    <label htmlFor="box" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Boxes / Cartons
+                    </label>
+                    <Input
+                      type="number"
+                      id="confirmPassword"
+                      name="box"
+                      placeholder="e.g. 50"
+                      onChange={(e) => inputHandler(e)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-primary text-sm font-mono"
+                    />
+                  </div>
 
+                  <div>
+                    <label htmlFor="Datex" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Issued On Date
+                    </label>
+                    <Input
+                      type="date"
+                      id="Datex"
+                      name="issue"
+                      onChange={(e) => inputHandler(e)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white focus:outline-none focus:border-primary text-sm font-mono"
+                    />
+                  </div>
+                </div>
 
-        <div className="flex justify-center gap-24">
-          <button className=" py-2 px-4 rounded-lg text-[#f59e0b] bg-black border-[#f59e0b] border-2 font-semibold hover:scale-105"
-          onClick={()=>setopenBox2(!openBox2)}> 
-            Cancel
-          </button>
-          
-          <button
-          type='submit'
-          onClick={handleUpdate}
-              className=" py-2 px-4 rounded-lg text-black bg-primary border-black border-2 font-semibold hover:scale-105"
-            >
-              Update
-            </button>
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
+                    onClick={() => setopenBox2(0)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    onClick={handleUpdate}
+                    className="px-5 py-2 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
+                  >
+                    Save Dispatch
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-            ) : (
-              null
-            )
-}
-
-    
-          </div>
-        </div>
     </PageTransition>
-        
-      );
-}
+  );
+};
 
-export default Dispatched
+export default Dispatched;

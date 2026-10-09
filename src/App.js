@@ -37,6 +37,12 @@ import Graph from './pages/Admin/Graph'
 import Dispatched from './pages/Admin/Dispatched'
 import Pouch from './pages/Admin/Pouch'
 import Costing from './pages/Admin/Costing'
+import RawMaterials from './pages/Admin/RawMaterials'
+import RecipeMaster from './pages/Admin/RecipeMaster'
+import PurchasePlanner from './pages/Admin/PurchasePlanner'
+import PerishableAlerts from './pages/Admin/PerishableAlerts'
+import GoodsReceipt from './pages/Admin/GoodsReceipt'
+import MaterialIssue from './pages/Admin/MaterialIssue'
 import Month from './components/Month'
 import { AnimatePresence } from 'framer-motion'
 
@@ -86,6 +92,12 @@ const App = () => {
    <Route path='Graph' element={<Graph/>}></Route>
    <Route path='Dispatched' element={<Dispatched/>}></Route>
    <Route path='Costing' element={<Costing/>}></Route>
+   <Route path='Raw-Materials' element={<RawMaterials/>}></Route>
+   <Route path='Recipe-Master' element={<RecipeMaster/>}></Route>
+   <Route path='Purchase-Planner' element={<PurchasePlanner/>}></Route>
+   <Route path='Perishable-Alerts' element={<PerishableAlerts/>}></Route>
+   <Route path='Goods-Receipt' element={<GoodsReceipt/>}></Route>
+   <Route path='Material-Issue' element={<MaterialIssue/>}></Route>
 </Route>
 
 <Route path='Login' element={<Login/>} />

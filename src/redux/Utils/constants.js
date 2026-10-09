@@ -32,3 +32,5 @@ export const DISPATCH_URL = 'https://agpl1.onrender.com/api/dispatch'
 export const EXPORT_URL = 'https://agpl1.onrender.com/api/export'
 
 export const GRAPH_URL = 'https://agpl1.onrender.com/api/graph'
+
+export const INVENTORY_MRP_URL = 'https://agpl1.onrender.com/api/inventory-mrp'

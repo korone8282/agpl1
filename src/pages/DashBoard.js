@@ -7,6 +7,7 @@ import {
   BarChart3,
   Package,
   FileText,
+  Boxes
 } from "lucide-react";
 import { Navigation } from '../components/Navigation';
 
@@ -14,6 +15,7 @@ const cards = [
   { icon: FileText, label: "View Data" },
   { icon: BarChart3, label: "View Analytics" },
   { icon: Package, label: "View Inventory" },
+  { icon: Boxes, label: "Raw Materials & MRP" },
 ];
 
 const items = [
@@ -37,6 +39,14 @@ const items = [
     {name: "Product List", path: "ProductData"},
     {name: "Packed List", path: "Left"},
     {name: "Filling List", path: "Filling-List"}
+  ],
+  [
+    {name: "Live Stock Ledger", path: "Raw-Materials"},
+    {name: "Recipe Master & BOM", path: "Recipe-Master"},
+    {name: "Purchase Planner (MRP)", path: "Purchase-Planner"},
+    {name: "Perishable Alerts", path: "Perishable-Alerts"},
+    {name: "Goods Receipt (GRN)", path: "Goods-Receipt"},
+    {name: "Kitchen Issue & Variance", path: "Material-Issue"}
   ]
 ]
 
@@ -57,64 +67,101 @@ export const Dashboard = () => {
   }, [userinfo,navigate]);
 
   return (
-    <div className="min-h-screen flex justify-center">
-  
-     <Navigation/>
+    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row relative">
+      <Navigation />
 
-      <div className="flex flex-col md:flex-row gap-6 max-w-[90%] mx-6 md:gap-12 my-16 md:my-24 md:ml-28">
-        {cards.map((card, index) => {
-          return (
-            <motion.div
-              key={card.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ 
-                opacity: 1, 
-                y: 0,
-                height: isOpen === card.label ? ( window.innerWidth < 768 ? "31rem" : "36rem" ) : "20rem"
-              }}
-              transition={{ 
-                delay: index * 0.3,
-                height: {
-                  duration: 0.2,
-                }
-              }}
-              onClick={() => setIsOpen(isOpen === card.label ? null : card.label)}
-              className="w-[20rem] md:w-[22rem] rounded-2xl bg-secondary/30 backdrop-blur-lg p-4 md:p-8 flex flex-col items-center hover:bg-secondary/50 transition-all group cursor-pointer overflow-hidden"
-              style={{
-                justifyContent: isOpen === card.label ? "flex-start" : "center",
-                paddingTop: isOpen === card.label ? "2rem" : "4rem",
-              }}
-            >
-              <card.icon className="w-12 h-12 md:w-16 md:h-16 text-primary mb-4 md:mb-6 group-hover:scale-110 transition-transform" />
-              <span className={`${ isOpen === card.label ? "text-primary" : "text-white"} text-lg md:text-xl font-medium mb-4`}>{card.label}</span>
-              
+      <main className="flex-1 w-full md:ml-24 px-4 sm:px-8 lg:px-12 py-10 max-w-[1800px] mx-auto">
+        {/* Header Banner */}
+        <div className="mb-10">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+              Enterprise Control Center
+            </span>
+            <span className="text-zinc-500 text-xs sm:text-sm font-mono">• Central Production Suite</span>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Aliments Global Operations Portal
+          </h1>
+          <p className="text-zinc-400 text-sm sm:text-base mt-2 max-w-3xl">
+            Select an operational pillar below to review shift logs, analytics graphs, inventory ledgers, or MRP procurement engines.
+          </p>
+        </div>
+
+        {/* 4 Pillar Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 w-full items-start">
+          {cards.map((card, index) => {
+            const isCardOpen = isOpen === card.label;
+            return (
               <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isOpen === card.label ? 1 : 0 }}
-                transition={{ duration: 0.2 }}
-                className="text-white/80 text-center w-full"
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1, duration: 0.3 }}
+                onClick={() => setIsOpen(isCardOpen ? null : card.label)}
+                className={`rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden backdrop-blur-xl ${
+                  isCardOpen
+                    ? "bg-[#111111]/95 border-primary/50 shadow-2xl shadow-primary/10 ring-1 ring-primary/20"
+                    : "bg-[#0b0b0b]/90 border-white/10 hover:border-white/20 hover:bg-[#121212] shadow-lg"
+                }`}
               >
-                {isOpen === card.label && (
-                  <div className="pt-4 md:pt-6 space-y-3 md:space-y-4">
+                {/* Card Header */}
+                <div className="p-6 flex flex-col items-center text-center">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-all ${
+                    isCardOpen ? "bg-primary text-black shadow-lg shadow-primary/20 scale-105" : "bg-white/5 border border-white/10 text-primary"
+                  }`}>
+                    <card.icon className="w-7 h-7" />
+                  </div>
+
+                  <h3 className={`text-lg font-bold tracking-tight transition-colors ${
+                    isCardOpen ? "text-primary" : "text-white"
+                  }`}>
+                    {card.label}
+                  </h3>
+
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 font-mono">
+                      {items[index].length} Modules
+                    </span>
+                    <span className="text-xs text-primary font-medium">
+                      {isCardOpen ? "Click to collapse" : "Click to view"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Expanded Item List */}
+                {isCardOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="px-5 pb-6 pt-2 border-t border-white/5 space-y-2.5"
+                  >
                     {items[index].map((item, i) => (
-                      <div key={i} className="p-2 text-base md:text-lg font-semibold hover:bg-white/10 rounded-lg transition-colors"
+                      <div
+                        key={i}
                         onClick={(e) => {
-                         e.stopPropagation();
-                         if (item.section) {
-                           dispatch(setSection(item.section));
-                         }
-                         navigate(`/admin/${item.path}`);
-                       }}>
-                        {item.name}
+                          e.stopPropagation();
+                          if (item.section) {
+                            dispatch(setSection(item.section));
+                          }
+                          navigate(`/admin/${item.path}`);
+                        }}
+                        className="w-full p-3 rounded-xl bg-white/[0.03] hover:bg-primary hover:text-black border border-white/5 hover:border-primary text-zinc-200 font-medium text-sm transition-all duration-200 flex items-center justify-between group/item cursor-pointer shadow-sm"
+                      >
+                        <span className="group-hover/item:font-bold">{item.name}</span>
+                        <span className="text-xs opacity-50 group-hover/item:opacity-100 transition-opacity font-mono">
+                          →
+                        </span>
                       </div>
                     ))}
-                  </div>
+                  </motion.div>
                 )}
               </motion.div>
-            </motion.div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </main>
     </div>
   );
 };

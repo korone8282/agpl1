@@ -65,88 +65,112 @@ async function getReport(){
 
 return (
   <PageTransition>
-    <div className="min-h-screen bg-background p-6">
-          <div className="max-w-[100rem] mx-auto space-y-12 text-start">
-    
-    
-          <div className="flex flex-col justify-center items-center mb-6 md:flex-row md:justify-between">
-
-              <div className="flex flex-col gap-4 md:flex-row md:gap-4 items-center">Start:
-                <Input
-                  type="date"
-                  name="start"
-                  onChange={ e => inputHandler(e) }
-                  className="bg-[#2A2A2A] border-none"
-                />
-                <Input
-                  type="date"
-                  name='end'
-                  onChange={ e => inputHandler(e) }
-                  className="bg-[#2A2A2A] border-none"
-                /> :End
-              </div>
-
-              <div className="flex items-center gap-4">
-            <div className="bg-[#1E1E1E] rounded-lg px-6 text-orange-500  border border-orange-500 hover:border-black text-lg p-2.5 mx-2 my-3 cursor-pointer hover:bg-orange-500 hover:text-black"
-                 onClick={getReport}>
-              <span>Submit</span>
+    <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+      <div className="w-full space-y-6 text-start">
+        {/* Header Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                Logistics & Outbound
+              </span>
+              <span className="text-zinc-500 text-xs font-mono">• Dispatch Archives</span>
             </div>
-</div>
-        </div>
-    
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Dispatch Shipment Report
+            </h1>
+            <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+              Query completed outbound shipments across custom date ranges.
+            </p>
+          </div>
 
-    
-    {
-      error ? (<div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'> No Data Entry Found</div>
-      ):(
-        <div>
-          {
-            loading ? (<Loader/>
-            ):(
-              <div className="rounded-lg border bg-card max-h-[35rem] overflow-auto">
-            <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/60">
-                    <TableHead>Date</TableHead>
-                    <TableHead>Buyer Name</TableHead>
-                    <TableHead>Product Name</TableHead>
-                    <TableHead>Pouch Dispatched</TableHead>
-                    <TableHead>Box</TableHead>
-                  </TableRow>
-                </TableHeader>
-
-  {   
-data.length ? (
-  <TableBody>
-{
-    data.map((val,ind)=>(
-      <TableRow key={ind}>
-        <TableCell>{val.lDate?.substring(0,10).split('-').reverse().join('-')}</TableCell>
-        <TableCell>{val.buyerName} </TableCell>
-        <TableCell>{val.productName} </TableCell>
-        <TableCell>{val.pouchDispatched} </TableCell>
-        <TableCell>{val.box} </TableCell>
-      </TableRow>
-    ))
-  }
-</TableBody>
-) : (
-  <TableCell colspan={4} className='text-3xl'>No Data Entry Found</TableCell>)
-  }
-
-              </Table>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
+              <span className="text-xs text-zinc-400 font-mono uppercase">From:</span>
+              <Input
+                type="date"
+                name="start"
+                onChange={(e) => inputHandler(e)}
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+              />
             </div>
-            )
-          }
-        </div>
-      )
-    }
-    
+
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
+              <span className="text-xs text-zinc-400 font-mono uppercase">To:</span>
+              <Input
+                type="date"
+                name="end"
+                onChange={(e) => inputHandler(e)}
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={getReport}
+              className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer"
+            >
+              Filter Ledger
+            </button>
           </div>
         </div>
+
+        {error ? (
+          <div className="py-24 text-center">
+            <p className="text-2xl font-bold text-zinc-400">No Data Entry Found</p>
+            <p className="text-xs text-zinc-600 mt-2">No dispatch shipment records match the selected date filter.</p>
+          </div>
+        ) : (
+          <div>
+            {loading ? (
+              <Loader />
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+                <div className="overflow-x-auto max-h-[44rem]">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                      <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                        <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Dispatch Date</TableHead>
+                        <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer Name</TableHead>
+                        <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                        <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Dispatched</TableHead>
+                        <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Carton Box Count</TableHead>
+                      </TableRow>
+                    </TableHeader>
+
+                    {data.length ? (
+                      <TableBody>
+                        {data.map((val, ind) => (
+                          <TableRow key={ind} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
+                            <TableCell className="font-mono text-xs text-zinc-300 py-3">
+                              {val.lDate?.substring(0, 10).split("-").reverse().join("-")}
+                            </TableCell>
+                            <TableCell className="text-xs text-white font-medium py-3">{val.buyerName}</TableCell>
+                            <TableCell className="text-xs text-zinc-300 py-3">{val.productName}</TableCell>
+                            <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3">{val.pouchDispatched}</TableCell>
+                            <TableCell className="font-mono text-xs text-cyan-400 py-3">{val.box}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    ) : (
+                      <TableBody>
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-12 text-zinc-500 font-mono text-xs">
+                            No dispatch entries available in selected range
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    )}
+                  </Table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   </PageTransition>
-        
-      );
+);
 }
 
 export default DispatchReport

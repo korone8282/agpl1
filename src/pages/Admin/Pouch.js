@@ -250,266 +250,295 @@ const months = [{month:"January"},
     return ascending.slice().reverse();
   };
 
-      return (
-      <PageTransition>
-          <div className="min-h-screen bg-background p-6">
-          <div className="max-w-[100rem] mx-auto space-y-12 text-start">
-  
-  <div className="flex flex-col justify-center items-center mb-6 md:flex-row md:justify-between">
-
-  <div className='flex gap-40 md:flex-row'>
-      <div className="mb-4">
-                      <label className="block text-muted-foreground mb-1">Buyer Name</label>
-                      <select
-              name='buyer'
-              className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={ e => inputHandler(e) }
-          >
-          <option className=' bg-[#2e3138] text-muted-foreground '>Select</option>
-          {
-              categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' 
-                                                   key={index} 
-                                                   value={val.name}> {val.name}</option>))
-          }
-          </select>
-      </div>
-
-      <div>
-  <h2 className="text-xl font-semibold">Monthly Data For <span className='text-primary'>{months[month-1].month}</span> </h2>
-
-  <div className="flex items-center gap-2 bg-card">
-     <Popover open={isOpen} onOpenChange={setIsOpen}>
-       <PopoverTrigger asChild>
-         <Button variant="outline" className="border-primary text-primary hover:bg-primary/10 my-5">
-           Month
-         </Button>
-       </PopoverTrigger>
-       <PopoverContent className="w-[280px] p-2 bg-card border-primary" onClick={() =>setIsOpen(0)}>
-         <div className="grid grid-cols-3 gap-2">
-           {months.map((monthItem,index) => (
-             <Button
-               key={monthItem.month}
-               variant="ghost"
-               onClick={()=>{
-                setmonth(index+1);
-                setInfo((prevData) => ({
-                    ...prevData,
-                    month: index+1
-                  })); 
-               }}>
-               {monthItem.month}
-             </Button>
-           ))}
-         </div>
-       </PopoverContent>
-     </Popover>
-   </div>
-        </div>
-  </div>
-
-        </div>
-
-    {
-      error ? (<div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'> No Data Entry Found</div>
-      ):(
-        <div>
-          {
-            loading ? (<Loader/>
-            ):(
-              <div className="rounded-lg border bg-card max-h-[35rem] overflow-auto">
-            <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/60">
-                    <TableHead>S. No.</TableHead>
-                    <TableHead>Product Name</TableHead>
-                    <TableHead>Previous Balance</TableHead>
-                    <TableHead>Pouches (IN)</TableHead>
-                    <TableHead>Pouch Filled</TableHead>
-                    <TableHead>Waste Pouches</TableHead>
-                    <TableHead>Balance</TableHead>
-                    <TableHead>Current Balance</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-    
-          <TableBody>
-              {
-                products.filter(product=> product.buyer === info.buyer).map((element,i)=>{
-                  const isExpanded = expandedId === element._id;
-                  const dateEntries = isExpanded ? getDateEntries(element) : [];
-                  const prevBalance = getPrevBalance(element);
-                  const stockIn = getStockIn(element);
-                  const filled = getFilled(element.name);
-                  const waste = getWaste(element.name);
-                  const monthBalance = stockIn - filled - waste;
-                  const currentBalance = prevBalance + monthBalance;
-
-                  return (
-                    <React.Fragment key={element._id || i}>
-                <TableRow
-                          className="hover:bg-muted/50 cursor-pointer"
-                          onClick={()=>{
-                            setExpandedId(isExpanded ? null : element._id);
-                          }}>
-                  <TableCell>{i+1}</TableCell>
-                  <TableCell>{element.name}</TableCell>
-                  <TableCell>{prevBalance}</TableCell>
-                  <TableCell>{stockIn}</TableCell>
-                  <TableCell>{filled}</TableCell>
-                  <TableCell>{waste}</TableCell>
-                  <TableCell>{monthBalance}</TableCell>
-                  <TableCell>{currentBalance}</TableCell>
-                  <TableCell onClick={(e)=>e.stopPropagation()}>
-                    <Popover
-                      open={actionOpenId === element._id}
-                      onOpenChange={(open) => setActionOpenId(open ? element._id : null)}
-                    >
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="border-primary text-primary hover:bg-primary/10 h-8 px-2"
-                        >
-                          Action
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-36 p-1 bg-card border-primary" align="end">
-                        <div className="flex flex-col gap-1">
-                          <Button
-                            variant="ghost"
-                            className="justify-start"
-                            onClick={() => openModal("update", element)}
-                          >
-                            Update
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            className="justify-start"
-                            onClick={() => openModal("add", element)}
-                          >
-                            Add
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </TableCell>
-                </TableRow>
-
-                {isExpanded && (
-                  <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={9} className="p-0">
-                      <div className="px-6 py-3">
-                        <div className="text-sm text-muted-foreground mb-2">
-                          Entries by date (newest first) — opening stock for month: {prevBalance + stockIn}
-                        </div>
-                        {dateEntries.length === 0 ? (
-                          <div className="text-sm py-2">No entries for this product in {months[month-1].month}</div>
-                        ) : (
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="bg-muted/50">
-                                <TableHead>Date</TableHead>
-                                <TableHead>Pouches (IN)</TableHead>
-                                <TableHead>Pouch Filled</TableHead>
-                                <TableHead>Waste Pouches</TableHead>
-                                <TableHead>Balance</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {dateEntries.map((day) => (
-                                <TableRow
-                                  key={day.dateKey}
-                                  className={day.hasStockIn ? "bg-amber-500/20 hover:bg-amber-500/25" : ""}
-                                >
-                                  <TableCell>{formatDateLabel(day.dateKey)}</TableCell>
-                                  <TableCell>{day.stockIn || "—"}</TableCell>
-                                  <TableCell>{day.filled || "—"}</TableCell>
-                                  <TableCell>{day.waste || "—"}</TableCell>
-                                  <TableCell>{day.balance}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-                    </React.Fragment>
-                  );
-                })
-              }
-            </TableBody>
-
-              </Table>
+  return (
+    <PageTransition>
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6 text-start">
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Inventory Ledger
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Finished Goods & Packaging</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Pouch Stock Reconciliation: <span className="text-primary">{months[month - 1].month}</span>
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                Real-time tracking of inward supply, filling consumption, wastage loss, and closing balance.
+              </p>
             </div>
-            )
-          }
-        </div>
-      )
-    }
 
-{
-            modalMode ? (
-      <div className="space-y-5 fixed h-fit inset-0 mx-auto top-40 bg-background p-5 shadow-black/70 shadow-2xl w-fit rounded-lg z-50 min-w-[18rem]">
-        <div className="text-lg font-semibold text-primary">
-          {modalMode === "add" ? "Add Pouches" : "Update Pouches (IN)"}
-        </div>
+            {/* Controls */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-mono uppercase text-zinc-400">Buyer:</label>
+                <select
+                  name="buyer"
+                  className="px-4 py-2 bg-black border border-white/10 rounded-xl text-white text-xs font-semibold focus:outline-none focus:border-primary transition-all"
+                  onChange={(e) => inputHandler(e)}
+                  value={info.buyer}
+                >
+                  <option value="">Select Buyer</option>
+                  {categories.map((val, index) => (
+                    <option key={index} value={val.name}>
+                      {val.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <div className='flex justify-between items-center gap-3'>
-          <label htmlFor="pouchCount" className='text-md'>
-             Pouches
-          </label>
-          <Input type='number'
-                 id="pouchCount"
-                 name = "pouches"
-                 value={info.pouches}
-                 onChange={ e => inputHandler(e) }
-                 className='border-2 border-[#f59e0b]'
-                       />
-        </div>
-
-        {modalMode === "add" && (
-          <div className='flex justify-between items-center gap-3'>
-            <label htmlFor="pouchDate" className='text-md'>
-               Date
-            </label>
-            <Input type='date'
-                   id="pouchDate"
-                   name="date"
-                   value={info.date}
-                   onChange={ e => inputHandler(e) }
-                   className='border-2 border-[#f59e0b]'
-                         />
+              <Popover open={isOpen} onOpenChange={setIsOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="border border-white/10 bg-white/5 hover:bg-white/10 hover:border-primary/50 text-white rounded-xl px-4 py-2 text-xs font-semibold tracking-wider transition-all"
+                  >
+                    📅 {months[month - 1].month}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-3 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {months.map((monthItem, index) => (
+                      <Button
+                        key={monthItem.month}
+                        variant="ghost"
+                        className="text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                        onClick={() => {
+                          setmonth(index + 1);
+                          setInfo((prevData) => ({
+                            ...prevData,
+                            month: index + 1,
+                          }));
+                          setIsOpen(false);
+                        }}
+                      >
+                        {monthItem.month}
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
-        )}
 
-        <div className="flex justify-center gap-24">
-          <button className=" py-2 px-4 rounded-lg text-[#f59e0b] bg-black border-[#f59e0b] border-2 font-semibold hover:scale-105"
-          onClick={()=>setModalMode(null)}> 
-            Cancel
-          </button>
-          
-          <button
-          type='submit'
-          onClick={handleSubmit}
-              className=" py-2 px-4 rounded-lg text-black bg-primary border-black border-2 font-semibold hover:scale-105"
-            >
-              {modalMode === "add" ? "Add" : "Update"}
-            </button>
+          {error ? (
+            <div className="w-full p-16 text-center bg-white/[0.02] border border-white/10 rounded-2xl">
+              <p className="text-xl font-bold text-zinc-400">No Data Entry Found</p>
+              <p className="text-xs text-zinc-500 mt-1">Please select a valid buyer or verify entry logs.</p>
+            </div>
+          ) : loading ? (
+            <Loader />
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div className="overflow-x-auto max-h-[44rem]">
+                <Table>
+                  <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
+                    <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">#</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Prev Balance</TableHead>
+                      <TableHead className="bg-[#141414] text-primary text-xs font-mono py-3.5">Pouches (IN)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Filled</TableHead>
+                      <TableHead className="bg-[#141414] text-amber-400 text-xs font-mono py-3.5">Waste Pouches</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Month Net</TableHead>
+                      <TableHead className="bg-[#141414] text-emerald-400 text-xs font-mono py-3.5">Current Balance</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {products.filter((product) => product.buyer === info.buyer).map((element, i) => {
+                      const isExpanded = expandedId === element._id;
+                      const dateEntries = isExpanded ? getDateEntries(element) : [];
+                      const prevBalance = getPrevBalance(element);
+                      const stockIn = getStockIn(element);
+                      const filled = getFilled(element.name);
+                      const waste = getWaste(element.name);
+                      const monthBalance = stockIn - filled - waste;
+                      const currentBalance = prevBalance + monthBalance;
+
+                      return (
+                        <React.Fragment key={element._id || i}>
+                          <TableRow
+                            className="hover:bg-white/[0.03] border-b border-white/5 cursor-pointer transition-colors"
+                            onClick={() => {
+                              setExpandedId(isExpanded ? null : element._id);
+                            }}
+                          >
+                            <TableCell className="font-mono text-xs text-zinc-500 py-3.5">{i + 1}</TableCell>
+                            <TableCell className="font-semibold text-white py-3.5 flex items-center gap-2">
+                              <span>{element.name}</span>
+                              <span className="text-[12px] text-zinc-500 font-mono">
+                                {isExpanded ? "▲" : "▼"}
+                              </span>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-zinc-400 py-3.5">{prevBalance}</TableCell>
+                            <TableCell className="font-mono text-xs text-primary font-bold py-3.5">{stockIn}</TableCell>
+                            <TableCell className="font-mono text-xs text-zinc-300 py-3.5">{filled}</TableCell>
+                            <TableCell className="font-mono text-xs text-amber-400 py-3.5">{waste}</TableCell>
+                            <TableCell className="font-mono text-xs text-zinc-400 py-3.5">{monthBalance}</TableCell>
+                            <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3.5">{currentBalance}</TableCell>
+                            <TableCell className="py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                              <Popover
+                                open={actionOpenId === element._id}
+                                onOpenChange={(open) => setActionOpenId(open ? element._id : null)}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="border border-white/10 bg-white/5 hover:bg-primary hover:text-black text-zinc-300 text-xs px-3 py-1 rounded-lg h-7 font-semibold transition-all"
+                                  >
+                                    Manage
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-36 p-1.5 bg-[#0d0d0d] border border-white/15 rounded-xl shadow-2xl text-white" align="end">
+                                  <div className="flex flex-col gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      className="justify-start text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                                      onClick={() => openModal("update", element)}
+                                    >
+                                      Update Stock (IN)
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      className="justify-start text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                                      onClick={() => openModal("add", element)}
+                                    >
+                                      Add New Pouches
+                                    </Button>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+                          </TableRow>
+
+                          {isExpanded && (
+                            <TableRow className="bg-black/70 hover:bg-black/70 border-b border-white/10">
+                              <TableCell colSpan={9} className="p-0">
+                                <div className="px-6 py-4 bg-[#0a0a0a] border-l-2 border-primary">
+                                  <div className="text-xs font-mono text-zinc-400 mb-3 flex items-center justify-between">
+                                    <span>Date Breakdown (Newest First)</span>
+                                    <span>Monthly Opening Stock: <strong className="text-white">{prevBalance + stockIn}</strong></span>
+                                  </div>
+                                  {dateEntries.length === 0 ? (
+                                    <div className="text-xs text-zinc-500 py-2">
+                                      No shift entries recorded for this product in {months[month - 1].month}.
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-xl border border-white/10 overflow-hidden">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow className="bg-white/5 border-b border-white/10">
+                                            <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Date</TableHead>
+                                            <TableHead className="text-primary font-mono text-[13px] py-2">Pouches (IN)</TableHead>
+                                            <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Pouch Filled</TableHead>
+                                            <TableHead className="text-amber-400 font-mono text-[13px] py-2">Waste Pouches</TableHead>
+                                            <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Balance</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {dateEntries.map((day) => (
+                                            <TableRow
+                                              key={day.dateKey}
+                                              className={day.hasStockIn ? "bg-primary/10 hover:bg-primary/15" : "border-b border-white/5 hover:bg-white/[0.02]"}
+                                            >
+                                              <TableCell className="font-mono text-xs py-2">{formatDateLabel(day.dateKey)}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 font-semibold">{day.stockIn || "—"}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2">{day.filled || "—"}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 text-amber-400">{day.waste || "—"}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 text-zinc-300">{day.balance}</TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Modal */}
+          {modalMode && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e0e] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl relative space-y-5">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h3 className="text-base font-bold text-white">
+                    {modalMode === "add" ? "Add Stock Pouches" : "Update Opening Stock (IN)"}
+                  </h3>
+                  <button onClick={() => setModalMode(null)} className="text-zinc-400 hover:text-white text-xs">
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="pouchCount" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Pouch Count
+                    </label>
+                    <Input
+                      type="number"
+                      id="pouchCount"
+                      name="pouches"
+                      placeholder="e.g. 5000"
+                      value={info.pouches}
+                      onChange={(e) => inputHandler(e)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-primary text-sm font-mono"
+                    />
+                  </div>
+
+                  {modalMode === "add" && (
+                    <div>
+                      <label htmlFor="pouchDate" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                        Supply Date
+                      </label>
+                      <Input
+                        type="date"
+                        id="pouchDate"
+                        name="date"
+                        value={info.date}
+                        onChange={(e) => inputHandler(e)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white focus:outline-none focus:border-primary text-sm font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
+                    onClick={() => setModalMode(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    onClick={handleSubmit}
+                    className="px-5 py-2 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
+                  >
+                    {modalMode === "add" ? "Add Stock" : "Save Changes"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-            ) : (
-              null
-            )
-}
-
-    
-          </div>
-        </div>
-      </PageTransition>
-      
-      );
-}
+    </PageTransition>
+  );
+};
 
 export default Pouch

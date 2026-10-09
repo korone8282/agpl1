@@ -99,118 +99,189 @@ const Production = () => {
   
 
   return (
-    <div>
-            <div className="flex justify-center my-6 items-center space-x-4">
-            <label className="text-lg text-muted-foreground">Plan for:</label>
+    <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-2xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="border-b border-white/10 pb-5 text-center sm:text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1 justify-center sm:justify-start">
+              <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                Shift Operations
+              </span>
+              <span className="text-zinc-500 text-xs font-mono">• Target Definition</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Create Production Goal
+            </h1>
+            <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+              Establish pouch packaging targets and shift parameters.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 justify-center sm:justify-end bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl">
+            <label className="text-xs font-mono uppercase text-zinc-400">Date:</label>
             <input
               type="date"
               value={info.date}
-              name='date'
-              onChange={e => inputHandler(e)}
-              className="border bg-[#22252a] border-border rounded-md px-3 py-1.5 text-md focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground shadow-md"
+              name="date"
+              onChange={(e) => inputHandler(e)}
+              className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer"
             />
-          </div> 
-    {
-      loading ? (<Loader/> 
-      ) : (
-        <div className={`bg-[#22252a] text-white  p-6 rounded-lg shadow-lg w-full max-w-md z-30 h-fit inset-0 m-auto`}>
-        <h2 className="text-xl font-semibold mb-4">Create Goal</h2>
-        <div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Buyer Name</label>
-                <select
-         name='buyerName'
-             className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-         value={info.buyerName}
-         onChange={ e => inputHandler(e) }
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground '>Select</option>
-    {
-        categories.map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-    }
-    </select>
-</div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Product Name</label>
-                <select
-         name='fname'
-           className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-         value={info.fname}
-         onChange={ e => inputHandler(e) }
-    >
-    <option className=' bg-[#2e3138] text-muted-foreground'>Select</option>
-    {
-        products?.filter((product) => product.buyer === info.buyerName).map((val,index)=>(<option className=' bg-[#2e3138] text-muted-foreground' value={val.name} key={index}>{val.name}</option>))
-    }
-    </select>
-</div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Batch Number</label>
-                <input  type='text' 
-                        id="email" 
-                        value={info.batchNum}
-                        name="batchNum" 
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        /> 
-            </div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Pouch Size</label>
-                <input  type='number'
-                        id="pass" 
-                        value={info.pouchSize}
-                        name='pouchSize'
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-
-            </div>
-            <div className="mb-4">
-                <label className="block text-muted-foreground mb-1">Pouch Goal</label>
-                <input  type='number'
-                        id="confirmPassword" 
-                        name = "pouchGoal" 
-                        value={info.pouchGoal}
-                        onChange={ e => inputHandler(e) }
-                        className="w-full p-2 bg-[#2e3138] border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              /></div>
-
-            <div className="mb-6">
-                <label className="block text-muted-foreground mb-3">Day/Night</label>
-                <div className="flex items-center gap-12">
-
-                <StyledWrapper>
-      <label className="checkbox-btn">
-        Day <label htmlFor="checkbox" />
-        <input id="checkbox" type="checkbox" name='day' value="Day" onClick={e=>{inputHandler(e); document.getElementById('nightCheckbox').checked = false;}}/>
-        <span className="checkmark" />
-      </label>
-               </StyledWrapper>
-
-               <StyledWrapper>
-      <label className="checkbox-btn">
-         Night <label htmlFor="nightCheckbox" />
-        <input id="nightCheckbox" type="checkbox" name='day' value="Night" onClick={e=>{inputHandler(e); document.getElementById('checkbox').checked = false;}}/>
-        <span className="checkmark" />
-      </label>
-               </StyledWrapper>
-
-                </div>
-            </div>
-            <div className="flex justify-end space-x-2">
-                <button type="button" className="bg-red-600 py-2 px-4 rounded hover:bg-red-500"
-                        onClick={handleCreate}>Submit</button>
-            </div>
+          </div>
         </div>
-    </div>
-      )
-    }
 
-      
+        {loading ? (
+          <Loader />
+        ) : (
+          <div className="bg-[#0d0d0d]/90 border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl space-y-5">
+            <h2 className="text-lg font-bold text-white border-b border-white/5 pb-3">Goal Parameters</h2>
 
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Buyer Name
+                </label>
+                <select
+                  name="buyerName"
+                  className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary transition-all"
+                  value={info.buyerName}
+                  onChange={(e) => inputHandler(e)}
+                >
+                  <option value="">Select Buyer</option>
+                  {categories.map((val, index) => (
+                    <option value={val.name} key={index}>
+                      {val.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Product Name
+                </label>
+                <select
+                  name="fname"
+                  className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary transition-all"
+                  value={info.fname}
+                  onChange={(e) => inputHandler(e)}
+                >
+                  <option value="">Select Product</option>
+                  {products
+                    ?.filter((product) => product.buyer === info.buyerName)
+                    .map((val, index) => (
+                      <option value={val.name} key={index}>
+                        {val.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                    Batch Number
+                  </label>
+                  <input
+                    type="text"
+                    id="email"
+                    value={info.batchNum}
+                    name="batchNum"
+                    placeholder="e.g. B-2026-001"
+                    onChange={(e) => inputHandler(e)}
+                    className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary transition-all font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                    Pouch Size (Kg)
+                  </label>
+                  <input
+                    type="number"
+                    id="pass"
+                    value={info.pouchSize}
+                    name="pouchSize"
+                    placeholder="e.g. 0.258"
+                    step="any"
+                    onChange={(e) => inputHandler(e)}
+                    className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary transition-all font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Pouch Production Goal (Target Units)
+                </label>
+                <input
+                  type="number"
+                  id="confirmPassword"
+                  name="pouchGoal"
+                  value={info.pouchGoal}
+                  placeholder="e.g. 5000"
+                  onChange={(e) => inputHandler(e)}
+                  className="w-full px-4 py-2.5 bg-black border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-primary transition-all font-mono"
+                />
+              </div>
+
+              <div className="pt-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                  Shift Timing
+                </label>
+                <div className="flex items-center gap-10 px-4 py-3 bg-black border border-white/10 rounded-xl">
+                  <StyledWrapper>
+                    <label className="checkbox-btn">
+                      Day Shift <label htmlFor="checkbox" />
+                      <input
+                        id="checkbox"
+                        type="checkbox"
+                        name="day"
+                        value="Day"
+                        onClick={(e) => {
+                          inputHandler(e);
+                          document.getElementById("nightCheckbox").checked = false;
+                        }}
+                      />
+                      <span className="checkmark" />
+                    </label>
+                  </StyledWrapper>
+
+                  <StyledWrapper>
+                    <label className="checkbox-btn">
+                      Night Shift <label htmlFor="nightCheckbox" />
+                      <input
+                        id="nightCheckbox"
+                        type="checkbox"
+                        name="day"
+                        value="Night"
+                        onClick={(e) => {
+                          inputHandler(e);
+                          document.getElementById("checkbox").checked = false;
+                        }}
+                      />
+                      <span className="checkmark" />
+                    </label>
+                  </StyledWrapper>
+                </div>
+              </div>
+
+              <div className="pt-3">
+                <button
+                  type="button"
+                  className="w-full py-3 bg-primary hover:bg-amber-400 text-black font-bold rounded-xl transition-all shadow-lg shadow-primary/20 cursor-pointer text-sm"
+                  onClick={handleCreate}
+                >
+                  Create Production Target
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  )
-}
+  );
+};
 
 export default Production
 

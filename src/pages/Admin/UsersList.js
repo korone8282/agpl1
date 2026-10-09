@@ -34,56 +34,84 @@ const UserList = () => {
  
   return (
     <PageTransition>
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-[100rem] mx-auto space-y-12 text-start">
+      <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
+        <div className="w-full space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
+                  Administration
+                </span>
+                <span className="text-zinc-500 text-xs font-mono">• Security & Access</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                User Management Directory
+              </h1>
+              <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+                All registered operators, administrators, and shift supervisors with portal access.
+              </p>
+            </div>
 
-      <h3 className='text-center text-2xl my-auto'>UserList</h3>
-{
-  error ? (<div className='sm:max-lg:mt-4 text-3xl font-bold text-center my-96'>Check Wifi Connection</div>
-  ):(
-    <div>
-      {
-        loading ? (<Loader/>
-        ):(
-          <div className="rounded-lg border bg-card max-h-[35rem] overflow-auto">
-        <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/60">
-                <TableHead>S No.</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Registered On</TableHead>
-                <TableHead>Access Type</TableHead>
-              </TableRow>
-            </TableHeader>
+            <div className="flex items-center gap-3">
+              <span className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-300 text-xs font-mono">
+                {users?.length || 0} Total Users
+              </span>
+            </div>
+          </div>
 
-<TableBody>
-{
-users?.map((val,ind)=>(
-  <TableRow key={ind}>
-    <TableCell>{ind+1}</TableCell>
-    <TableCell>{val.fname} </TableCell>
-    <TableCell>{val.email} </TableCell>
-    <TableCell>{val.createdAt?.substring(0,10)} </TableCell>
-    <TableCell>{val.isAdmin?"Admin":"User"} </TableCell>
-  </TableRow>
-))
-}
-</TableBody>
+          {error ? (
+            <div className="w-full p-12 text-center bg-rose-500/10 border border-rose-500/20 rounded-2xl">
+              <p className="text-lg font-bold text-rose-400">Unable to load users</p>
+              <p className="text-sm text-zinc-400 mt-1">Please verify network connection and authorization privileges.</p>
+            </div>
+          ) : loading ? (
+            <Loader />
+          ) : (
+            <div className="w-full rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-white/5 border-b border-white/10">
+                      <TableHead className="text-zinc-400 font-mono text-xs uppercase tracking-wider py-4">#</TableHead>
+                      <TableHead className="text-zinc-400 font-mono text-xs uppercase tracking-wider py-4">Name</TableHead>
+                      <TableHead className="text-zinc-400 font-mono text-xs uppercase tracking-wider py-4">Email Address</TableHead>
+                      <TableHead className="text-zinc-400 font-mono text-xs uppercase tracking-wider py-4">Registered Date</TableHead>
+                      <TableHead className="text-zinc-400 font-mono text-xs uppercase tracking-wider py-4">Access Role</TableHead>
+                    </TableRow>
+                  </TableHeader>
 
-          </Table>
+                  <TableBody>
+                    {users?.map((val, ind) => (
+                      <TableRow key={ind} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                        <TableCell className="font-mono text-xs text-zinc-500 py-3.5">{ind + 1}</TableCell>
+                        <TableCell className="font-semibold text-white py-3.5">{val.fname}</TableCell>
+                        <TableCell className="text-zinc-300 font-mono text-xs py-3.5">{val.email}</TableCell>
+                        <TableCell className="text-zinc-400 font-mono text-xs py-3.5">
+                          {val.createdAt?.substring(0, 10)}
+                        </TableCell>
+                        <TableCell className="py-3.5">
+                          {val.isAdmin ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 font-mono">
+                              Admin
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/5 text-zinc-300 border border-white/10 font-mono">
+                              User
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
         </div>
-        )
-      }
-    </div>
-  )
-}
-
       </div>
-    </div>
     </PageTransition>
-
   );
-}
+};
 
 export default UserList
