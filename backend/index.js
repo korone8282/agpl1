@@ -43,7 +43,7 @@ app.use("/api/graph",graphRoutes);
 app.use("/api/inventory-mrp", inventoryMrpRoutes);
 app.use("/uploads",express.static(path.join(__dirname + '/uploads')));
 
-port = 4001||process.env.PORT;
+port = 4000||process.env.PORT;
 
 app.get("/", (req, res) => {
 	return res.json({
