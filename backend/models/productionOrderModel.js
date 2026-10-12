@@ -33,6 +33,15 @@ const productionOrderSchema = new mongoose.Schema(
             unique: true,
             trim: true
         },
+        buyerName: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        buyerOrderId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'BuyerOrder'
+        },
         productionDate: {
             type: Date,
             required: true

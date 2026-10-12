@@ -1,15 +1,19 @@
+import { useEffect } from "react";
 import { Dashboard } from "./DashBoard";
 import { motion } from "framer-motion";
 
-const Home= () => {
+const Home = () => {
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black  text-white"
     >
-    <Dashboard />
-
+      <Dashboard />
     </motion.div>
   );
 };

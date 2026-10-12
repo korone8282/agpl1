@@ -45,8 +45,7 @@ const items = [
     {name: "Recipe Master & BOM", path: "Recipe-Master"},
     {name: "Purchase Planner (MRP)", path: "Purchase-Planner"},
     {name: "Perishable Alerts", path: "Perishable-Alerts"},
-    {name: "Goods Receipt (GRN)", path: "Goods-Receipt"},
-    {name: "Kitchen Issue & Variance", path: "Material-Issue"}
+    {name: "Kitchen Variance Tracker", path: "Kitchen-Variance"}
   ]
 ]
 
@@ -79,12 +78,6 @@ export const Dashboard = () => {
             </span>
             <span className="text-zinc-500 text-xs sm:text-sm font-mono">• Central Production Suite</span>
           </div>
-          <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Aliments Global Operations Portal
-          </h1>
-          <p className="text-zinc-400 text-sm sm:text-base mt-2 max-w-3xl">
-            Select an operational pillar below to review shift logs, analytics graphs, inventory ledgers, or MRP procurement engines.
-          </p>
         </div>
 
         {/* 4 Pillar Grid */}

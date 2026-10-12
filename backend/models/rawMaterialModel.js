@@ -40,6 +40,9 @@ const rawMaterialSchema = new mongoose.Schema(
             type: Number,
             default: 1 // Commercial packaging size (e.g. 25 kg bag, 15 L tin)
         },
+        earliestExpiryDate: {
+            type: Date
+        },
         preferredSupplier: {
             type: String,
             default: ''

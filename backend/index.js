@@ -52,6 +52,15 @@ app.get("/", (req, res) => {
 	});
 });
 
+app.get("/api/health", (req, res) => {
+	return res.json({
+		success: true,
+		status: "healthy",
+		message: "Backend server is online and active",
+		timestamp: new Date()
+	});
+});
+
 app.listen(port,()=>{	
     console.log(`listening at port: ${port}`);
 });

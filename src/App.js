@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import Home from './pages/Home'
-import { Route,Routes } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import Header from './components/Header'
 import Filiing from './pages/Sections/Filiing'
 import Dispatch from './pages/Sections/Dispatch'
@@ -43,14 +43,25 @@ import PurchasePlanner from './pages/Admin/PurchasePlanner'
 import PerishableAlerts from './pages/Admin/PerishableAlerts'
 import GoodsReceipt from './pages/Admin/GoodsReceipt'
 import MaterialIssue from './pages/Admin/MaterialIssue'
+import KitchenVarianceTracker from './pages/Admin/KitchenVarianceTracker'
 import Month from './components/Month'
 import { AnimatePresence } from 'framer-motion'
+
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname]);
+
+  return null;
+};
 
 const App = () => {
   
   return (
 <div>
-
+<ScrollToTop />
 <Header/>
 
 <AnimatePresence mode='wait'>
@@ -98,6 +109,7 @@ const App = () => {
    <Route path='Perishable-Alerts' element={<PerishableAlerts/>}></Route>
    <Route path='Goods-Receipt' element={<GoodsReceipt/>}></Route>
    <Route path='Material-Issue' element={<MaterialIssue/>}></Route>
+   <Route path='Kitchen-Variance' element={<KitchenVarianceTracker/>}></Route>
 </Route>
 
 <Route path='Login' element={<Login/>} />

@@ -17,13 +17,14 @@ const Profile = () => {
   useEffect(() => {
     const profileFetcher = async () => {
       try {
+        if (!id) return;
         const res = await apiConnector(
           `${PROFILE_URL}/${id}`,
           'GET',
           null,
-          { Authorization: `Bearer ${userinfo.token}` }
+          { Authorization: `Bearer ${userinfo?.token}` }
         );
-        setUser(res.data.data);
+        setUser(res.data?.data || res.data || {});
         setLoading(false);
       } catch (e) {
         console.log(e);
@@ -31,8 +32,10 @@ const Profile = () => {
       }
     };
 
-    profileFetcher();
-  }, [id, userinfo.token]);
+    if (id) {
+      profileFetcher();
+    }
+  }, [id, userinfo?.token]);
 
   return (
     <PageTransition>
@@ -55,7 +58,7 @@ const Profile = () => {
 
             <button
               type="button"
-              onClick={() => navigate(`/admin/updateProfile/${userinfo._id}`)}
+              onClick={() => navigate(`/admin/updateProfile/${userinfo?._id || userinfo?.id || id}`)}
               className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer flex items-center gap-2 w-fit"
             >
               <Edit3 className="w-4 h-4" />

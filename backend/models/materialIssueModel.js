@@ -10,6 +10,14 @@ const materialIssueItemSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    openingStock: {
+        type: Number,
+        default: 0
+    },
+    closingStock: {
+        type: Number,
+        default: 0
+    },
     theoreticalEdibleQty: {
         type: Number,
         required: true
@@ -60,6 +68,24 @@ const materialIssueSchema = new mongoose.Schema(
         productionOrder: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'ProductionOrder'
+        },
+        batches: {
+            type: Number,
+            default: 1
+        },
+        buyerName: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        productName: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        totalIssuedKg: {
+            type: Number,
+            default: 0
         },
         issueDate: {
             type: Date,

@@ -37,6 +37,46 @@
   }
 }
 
+/* Global Date Picker Calendar Input & Icon Styling */
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="time"] {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-text,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  color-scheme: light;
+  filter: invert(65%) sepia(85%) saturate(850%) hue-rotate(145deg) brightness(1.25) contrast(1.1);
+  opacity: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background-color: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  transition: none;
+}
+
 /* Custom styles for premium look */
 .glass-panel {
   @apply bg-secondary/30 backdrop-blur-lg border border-white/10;

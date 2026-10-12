@@ -58,6 +58,11 @@ const stockLedgerSchema = new mongoose.Schema(
             type: String,
             default: '' // PO id, issue id, or reason tag
         },
+        vendor: {
+            type: String,
+            default: '',
+            trim: true
+        },
         reason: {
             type: String,
             default: ''

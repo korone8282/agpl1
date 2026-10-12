@@ -5,6 +5,10 @@ const StockLedger = require('../models/stockLedgerModel');
 const ProductionOrder = require('../models/productionOrderModel');
 const PurchaseOrder = require('../models/purchaseOrderModel');
 const MaterialIssue = require('../models/materialIssueModel');
+const KitchenVariance = require('../models/kitchenVarianceModel');
+const BuyerOrder = require('../models/buyerOrderModel');
+const MaterialOrder = require('../models/materialOrderModel');
+const Data = require('../models/dataModel');
 
 // Helper to robustly parse Excel dates (serial numbers, Date objects, strings)
 const parseExcelDate = (val) => {
@@ -27,6 +31,12 @@ const parseExcelDate = (val) => {
         return isNaN(date.getTime()) ? null : date;
     }
     return null;
+};
+
+// Helper to generate concise 4-5 digit random code (e.g. GRN-48291, ISS-19284)
+const generate4to5DigitCode = (prefix) => {
+    const num = Math.floor(10000 + Math.random() * 90000);
+    return `${prefix}-${num}`;
 };
 
 // Helper to escape regex special characters
@@ -60,7 +70,7 @@ const normalizeUnit = (unit) => {
 
 exports.getRawMaterials = async (req, res) => {
     try {
-        const { storageType, search, lowStock } = req.query;
+        const { storageType, search, lowStock, expiringSoon } = req.query;
         let query = { isActive: true };
 
         if (storageType && ['Cold', 'Ambient'].includes(storageType)) {
@@ -77,14 +87,42 @@ exports.getRawMaterials = async (req, res) => {
 
         let materials = await RawMaterial.find(query).sort({ name: 1 });
 
+        const now = new Date();
+        const enriched = materials.map(m => {
+            const doc = m.toObject();
+            if (doc.earliestExpiryDate) {
+                const exp = new Date(doc.earliestExpiryDate);
+                const diffTime = exp.getTime() - now.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                doc.daysUntilExpiry = diffDays;
+                if (diffDays < 0) {
+                    doc.fefoStatus = 'EXPIRED';
+                } else if (diffDays <= 7) {
+                    doc.fefoStatus = 'CRITICAL';
+                } else if (diffDays <= 30) {
+                    doc.fefoStatus = 'EXPIRING_SOON';
+                } else {
+                    doc.fefoStatus = 'SAFE';
+                }
+            } else {
+                doc.daysUntilExpiry = null;
+                doc.fefoStatus = 'NO_EXPIRY';
+            }
+            return doc;
+        });
+
+        let result = enriched;
         if (lowStock === 'true') {
-            materials = materials.filter(m => m.currentStock <= m.minSafetyStock);
+            result = result.filter(m => m.currentStock <= 0);
+        }
+        if (expiringSoon === 'true') {
+            result = result.filter(m => m.fefoStatus === 'CRITICAL' || m.fefoStatus === 'EXPIRING_SOON' || m.fefoStatus === 'EXPIRED');
         }
 
         res.status(200).json({
             success: true,
-            count: materials.length,
-            data: materials
+            count: result.length,
+            data: result
         });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -100,13 +138,152 @@ exports.getRawMaterialById = async (req, res) => {
 
         const recentTransactions = await StockLedger.find({ rawMaterial: material._id })
             .sort({ createdAt: -1 })
-            .limit(20);
+            .limit(30);
+
+        // 1. FEFO active batch lots (sorted by expiryDate ascending)
+        const activeLots = await StockLedger.find({
+            rawMaterial: material._id,
+            transactionType: { $in: ['OPENING', 'GRN'] }
+        })
+            .sort({ expiryDate: 1, createdAt: 1 })
+            .limit(30);
+
+        // 2. Purchase History Log -> date, quantity, rate, cost, vendor
+        const purchaseLedgers = await StockLedger.find({
+            rawMaterial: material._id,
+            transactionType: { $in: ['GRN', 'OPENING'] }
+        }).sort({ createdAt: -1 }).limit(100);
+
+        const purchaseHistory = purchaseLedgers.map(p => {
+            let vendor = p.vendor || '';
+            if (!vendor && p.reason) {
+                const match = p.reason.match(/from\s+(.+)$/i);
+                if (match) vendor = match[1].trim();
+            }
+            if (!vendor && p.transactionType === 'OPENING') vendor = 'Opening Stock';
+            if (!vendor) vendor = material.preferredSupplier || '—';
+
+            return {
+                _id: p._id,
+                date: p.createdAt,
+                quantity: p.quantity,
+                rate: p.rate,
+                cost: p.totalAmount > 0 ? p.totalAmount : parseFloat((p.quantity * p.rate).toFixed(3)),
+                vendor,
+                grnNumber: p.grnNumber || '—',
+                lotNumber: p.lotNumber || '—',
+                unit: p.unit || material.baseUnit
+            };
+        });
+
+        // Also blend any historic price entries from material.priceHistory not covered
+        if (material.priceHistory && material.priceHistory.length > 0) {
+            material.priceHistory.forEach(ph => {
+                const exists = purchaseHistory.some(p => p.grnNumber && ph.grnNumber && p.grnNumber === ph.grnNumber);
+                if (!exists && ph.rate) {
+                    purchaseHistory.push({
+                        _id: ph._id || Math.random().toString(),
+                        date: ph.date || new Date(),
+                        quantity: 0,
+                        rate: ph.rate,
+                        cost: 0,
+                        vendor: ph.vendor || material.preferredSupplier || '—',
+                        grnNumber: ph.grnNumber || '—',
+                        lotNumber: '—',
+                        unit: material.baseUnit
+                    });
+                }
+            });
+            purchaseHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+
+        // 3. Usage Records -> date, recipe name, opening balance - used qty, closing balance
+        const issues = await MaterialIssue.find({
+            $or: [
+                { 'items.rawMaterial': material._id },
+                { 'items.materialName': { $regex: `^${escapeRegex(material.name.trim())}$`, $options: 'i' } }
+            ]
+        }).sort({ createdAt: -1 }).limit(100);
+
+        const usageMap = new Map();
+        issues.forEach(iss => {
+            const it = (iss.items || []).find(item =>
+                (item.rawMaterial && String(item.rawMaterial) === String(material._id)) ||
+                (item.materialName && item.materialName.toLowerCase() === material.name.toLowerCase())
+            );
+            if (it) {
+                const usedQty = Number(it.actualIssuedQty) || 0;
+                let openBal = it.openingStock;
+                let closeBal = it.closingStock;
+                if ((openBal === undefined || openBal === null) && closeBal !== undefined && closeBal !== null) {
+                    openBal = closeBal + usedQty;
+                }
+                if ((closeBal === undefined || closeBal === null) && openBal !== undefined && openBal !== null) {
+                    closeBal = Math.max(0, openBal - usedQty);
+                }
+
+                const record = {
+                    _id: iss._id,
+                    issueNumber: iss.issueNumber,
+                    date: iss.issueDate || iss.createdAt,
+                    recipeName: iss.productName || 'Recipe Issue',
+                    batches: iss.batches || 1,
+                    openingBalance: openBal,
+                    usedQty: usedQty,
+                    closingBalance: closeBal,
+                    unit: it.unit || material.baseUnit
+                };
+                usageMap.set(String(iss._id), record);
+            }
+        });
+
+        // Supplement from StockLedger for any KITCHEN_ISSUE or adjustments
+        const ledgerUsages = await StockLedger.find({
+            rawMaterial: material._id,
+            transactionType: { $in: ['KITCHEN_ISSUE', 'WRITE_OFF', 'ADJUSTMENT'] }
+        }).sort({ createdAt: -1 }).limit(100);
+
+        ledgerUsages.forEach(lu => {
+            const matchingIssue = Array.from(usageMap.values()).find(u => u.issueNumber === lu.referenceId);
+            if (!matchingIssue) {
+                const usedQty = Math.abs(Number(lu.quantity) || 0);
+                const closeBal = Number(lu.balanceAfter) || 0;
+                const openBal = closeBal + usedQty;
+
+                let recipeName = 'Kitchen Issue';
+                if (lu.reason) {
+                    const mMatch = lu.reason.match(/of\s+([^(]+)/i);
+                    if (mMatch) {
+                        recipeName = mMatch[1].trim();
+                    } else {
+                        recipeName = lu.reason;
+                    }
+                }
+
+                usageMap.set(String(lu._id), {
+                    _id: lu._id,
+                    issueNumber: lu.referenceId || 'ISS-MANUAL',
+                    date: lu.createdAt,
+                    recipeName,
+                    batches: 1,
+                    openingBalance: openBal,
+                    usedQty,
+                    closingBalance: closeBal,
+                    unit: lu.unit || material.baseUnit
+                });
+            }
+        });
+
+        const usageRecords = Array.from(usageMap.values()).sort((a, b) => new Date(b.date) - new Date(a.date));
 
         res.status(200).json({
             success: true,
             data: {
                 ...material.toObject(),
-                recentTransactions
+                recentTransactions,
+                activeLots,
+                purchaseHistory,
+                usageRecords
             }
         });
     } catch (err) {
@@ -146,7 +323,8 @@ exports.createRawMaterial = async (req, res) => {
             leadTimeDays: Number(leadTimeDays) || 1,
             packSize: Number(packSize) || 1,
             preferredSupplier: preferredSupplier || '',
-            lastPurchaseRate: Number(lastPurchaseRate) || 0
+            lastPurchaseRate: Number(lastPurchaseRate) || 0,
+            earliestExpiryDate: req.body.earliestExpiryDate ? new Date(req.body.earliestExpiryDate) : undefined
         });
 
         // If initial opening stock was provided during creation, record ledger entry
@@ -195,8 +373,20 @@ exports.updateRawMaterial = async (req, res) => {
 
 exports.getRecipes = async (req, res) => {
     try {
-        const recipes = await Recipe.find({ isActive: true }).sort({ productName: 1 });
-        res.status(200).json({ success: true, count: recipes.length, data: recipes });
+        const { buyerName, search } = req.query;
+        let query = { isActive: true };
+        if (buyerName && buyerName !== 'ALL') {
+            query.buyerName = buyerName;
+        }
+        if (search) {
+            query.$or = [
+                { productName: { $regex: search, $options: 'i' } },
+                { buyerName: { $regex: search, $options: 'i' } }
+            ];
+        }
+        const recipes = await Recipe.find(query).sort({ buyerName: 1, productName: 1 });
+        const allBuyers = await Recipe.distinct('buyerName', { isActive: true });
+        res.status(200).json({ success: true, count: recipes.length, buyers: allBuyers, data: recipes });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -216,17 +406,36 @@ exports.getRecipeById = async (req, res) => {
 
 exports.createRecipe = async (req, res) => {
     try {
-        const { productName, nominalBatchYieldPouches, batchCookedWeightKg, ingredients } = req.body;
+        const { buyerName, productName, nominalBatchYieldPouches, batchCookedWeightKg, packSizes, ingredients } = req.body;
+        const bName = (buyerName || 'General').trim();
+        const pName = (productName || '').trim();
 
-        const existing = await Recipe.findOne({ productName: productName.trim() });
+        if (!pName) {
+            return res.status(400).json({ success: false, message: 'Product name is required' });
+        }
+
+        const existing = await Recipe.findOne({ buyerName: bName, productName: pName });
         if (existing) {
-            return res.status(400).json({ success: false, message: `Recipe for "${productName}" already exists` });
+            return res.status(400).json({ success: false, message: `Recipe for "${pName}" under buyer "${bName}" already exists` });
+        }
+
+        const cookedWeight = parseFloat(Number(batchCookedWeightKg || 0).toFixed(4));
+        let normalizedPackSizes = [];
+        if (Array.isArray(packSizes)) {
+            normalizedPackSizes = packSizes.map(p => {
+                const n = parseFloat(p) || 0;
+                return n > 5 ? parseFloat((n / 1000).toFixed(4)) : parseFloat(n.toFixed(4));
+            }).filter(p => p > 0);
+        }
+        let pouchesPerBatch = Number(nominalBatchYieldPouches) || 250;
+        if (cookedWeight > 0 && normalizedPackSizes.length > 0) {
+            pouchesPerBatch = parseFloat((cookedWeight / normalizedPackSizes[0]).toFixed(3));
         }
 
         // Link rawMaterial IDs where available
         const enrichedIngredients = await Promise.all(
             (ingredients || []).map(async (ing) => {
-                const escapedName = escapeRegex(ing.materialName.trim());
+                const escapedName = escapeRegex((ing.materialName || '').trim());
                 let rm = await RawMaterial.findOne({
                     name: { $regex: `^${escapedName}$`, $options: 'i' }
                 });
@@ -241,9 +450,11 @@ exports.createRecipe = async (req, res) => {
         );
 
         const recipe = await Recipe.create({
-            productName: productName.trim(),
-            nominalBatchYieldPouches: Number(nominalBatchYieldPouches) || 250,
-            batchCookedWeightKg: Number(batchCookedWeightKg) || 0,
+            buyerName: bName,
+            productName: pName,
+            nominalBatchYieldPouches: pouchesPerBatch,
+            batchCookedWeightKg: cookedWeight,
+            packSizes: normalizedPackSizes,
             ingredients: enrichedIngredients
         });
 
@@ -255,13 +466,49 @@ exports.createRecipe = async (req, res) => {
 
 exports.updateRecipe = async (req, res) => {
     try {
-        const recipe = await Recipe.findByIdAndUpdate(req.params.id, req.body, {
-            new: true,
-            runValidators: true
-        });
+        const { buyerName, productName, nominalBatchYieldPouches, batchCookedWeightKg, packSizes, ingredients } = req.body;
+        const recipe = await Recipe.findById(req.params.id);
         if (!recipe) {
             return res.status(404).json({ success: false, message: 'Recipe not found' });
         }
+
+        if (buyerName) recipe.buyerName = buyerName.trim();
+        if (productName) recipe.productName = productName.trim();
+        if (batchCookedWeightKg !== undefined) {
+            recipe.batchCookedWeightKg = parseFloat(Number(batchCookedWeightKg || 0).toFixed(4));
+        }
+        if (packSizes !== undefined && Array.isArray(packSizes)) {
+            recipe.packSizes = packSizes.map(p => {
+                const n = parseFloat(p) || 0;
+                return n > 5 ? parseFloat((n / 1000).toFixed(4)) : parseFloat(n.toFixed(4));
+            }).filter(p => p > 0);
+        }
+        if (recipe.batchCookedWeightKg > 0 && recipe.packSizes && recipe.packSizes.length > 0) {
+            recipe.nominalBatchYieldPouches = parseFloat((recipe.batchCookedWeightKg / recipe.packSizes[0]).toFixed(3));
+        } else if (nominalBatchYieldPouches) {
+            recipe.nominalBatchYieldPouches = Number(nominalBatchYieldPouches);
+        }
+
+        if (ingredients && Array.isArray(ingredients)) {
+            const enrichedIngredients = await Promise.all(
+                ingredients.map(async (ing) => {
+                    const escapedName = escapeRegex((ing.materialName || '').trim());
+                    let rm = await RawMaterial.findOne({
+                        name: { $regex: `^${escapedName}$`, $options: 'i' }
+                    });
+                    return {
+                        ...ing,
+                        rawMaterial: rm ? rm._id : ing.rawMaterial,
+                        lossFactor: Number(ing.lossFactor) || 1.0,
+                        edibleQuantity: Number(ing.edibleQuantity) || 0,
+                        unit: normalizeUnit(ing.unit)
+                    };
+                })
+            );
+            recipe.ingredients = enrichedIngredients;
+        }
+
+        await recipe.save();
         res.status(200).json({ success: true, data: recipe });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -291,10 +538,11 @@ exports.importRecipesExcel = async (req, res) => {
 
             let nominalBatchYieldPouches = 250;
             let batchCookedWeightKg = 0;
+            let packSizes = [];
             let explicitProductName = '';
             let headerRowIndex = -1;
 
-            // Find nominal batch yield, cooked weight, explicit product name, and table headers
+            // Find nominal batch yield, cooked weight, explicit product name, pack sizes, and table headers
             for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
                 const row = rawRows[i];
                 for (let j = 0; j < row.length; j++) {
@@ -304,13 +552,29 @@ exports.importRecipesExcel = async (req, res) => {
                             explicitProductName = String(row[j + 1]).trim();
                         }
                     }
-                    if (cellVal.includes('nominal') || cellVal.includes('yield') || cellVal.includes('pouch')) {
+                    if (cellVal.includes('nominal') || cellVal.includes('yield (pouch') || cellVal.includes('pouches per batch') || cellVal.includes('pouches/batch')) {
                         const val = parseFloat(row[j + 1]);
                         if (!isNaN(val) && val > 0) nominalBatchYieldPouches = val;
                     }
-                    if (cellVal.includes('cooked weight') || cellVal.includes('batch weight')) {
-                        const val = parseFloat(row[j + 1]);
-                        if (!isNaN(val) && val > 0) batchCookedWeightKg = val;
+                    if (cellVal.includes('cooked weight') || cellVal.includes('batch weight') || cellVal.includes('total yield') || cellVal.includes('cooked yield') || cellVal.includes('batch yield (kg)')) {
+                        const rawVal = row[j + 1] !== '' ? row[j + 1] : row[j];
+                        const match = String(rawVal).match(/[\d.]+/);
+                        if (match) {
+                            const val = parseFloat(match[0]);
+                            if (!isNaN(val) && val > 0) batchCookedWeightKg = val;
+                        }
+                    }
+                    if (cellVal.includes('pack size') || cellVal.includes('pouch size') || cellVal.includes('package size')) {
+                        const rawVal = String(row[j + 1] || '');
+                        const sizes = rawVal.split(/[,/|]/).map(s => {
+                            const m = s.match(/[\d.]+/);
+                            if (!m) return null;
+                            const n = parseFloat(m[0]);
+                            return n > 5 ? parseFloat((n / 1000).toFixed(4)) : parseFloat(n.toFixed(4));
+                        }).filter(Boolean);
+                        if (sizes.length > 0) {
+                            packSizes = sizes;
+                        }
                     }
                     if (cellVal.includes('ingredient') || cellVal.includes('material') || cellVal.includes('s. no.') || cellVal.includes('s.no')) {
                         headerRowIndex = i;
@@ -430,10 +694,14 @@ exports.importRecipesExcel = async (req, res) => {
             }
 
             if (ingredients.length > 0) {
+                if (batchCookedWeightKg > 0 && packSizes.length > 0) {
+                    nominalBatchYieldPouches = parseFloat((batchCookedWeightKg / packSizes[0]).toFixed(3));
+                }
                 parsedRecipes.push({
                     productName: recipeProductName,
                     nominalBatchYieldPouches,
                     batchCookedWeightKg,
+                    packSizes,
                     ingredientCount: ingredients.length,
                     ingredients
                 });
@@ -500,6 +768,7 @@ exports.importRecipesExcel = async (req, res) => {
                     productName: rec.productName,
                     nominalBatchYieldPouches: rec.nominalBatchYieldPouches,
                     batchCookedWeightKg: rec.batchCookedWeightKg,
+                    ...(rec.packSizes && rec.packSizes.length > 0 ? { packSizes: rec.packSizes } : {}),
                     ingredients: enrichedIngredients,
                     isActive: true
                 },
@@ -633,12 +902,18 @@ exports.importOpeningStockExcel = async (req, res) => {
                     preferredSupplier: item.preferredSupplier,
                     lastPurchaseRate: item.rate,
                     averagePurchaseRate: item.rate,
+                    earliestExpiryDate: item.expiryDate || undefined,
                     priceHistory: item.rate > 0 ? [{ rate: item.rate, date: new Date(), vendor: item.preferredSupplier }] : []
                 });
             } else {
                 rawMat.currentStock = item.openingStock;
                 rawMat.storageType = item.storageType;
                 rawMat.baseUnit = item.unit;
+                if (item.expiryDate) {
+                    if (!rawMat.earliestExpiryDate || new Date(item.expiryDate) < new Date(rawMat.earliestExpiryDate)) {
+                        rawMat.earliestExpiryDate = item.expiryDate;
+                    }
+                }
                 if (item.code) rawMat.code = item.code.toUpperCase();
                 if (item.minSafetyStock > 0) rawMat.minSafetyStock = item.minSafetyStock;
                 if (item.leadTimeDays > 0) rawMat.leadTimeDays = item.leadTimeDays;
@@ -663,6 +938,7 @@ exports.importOpeningStockExcel = async (req, res) => {
                 rate: item.rate,
                 totalAmount: item.openingStock * item.rate,
                 storageType: item.storageType,
+                vendor: item.preferredSupplier || 'Opening Stock',
                 expiryDate: item.expiryDate || undefined,
                 reason: 'Day-1 Opening Stock Import'
             });
@@ -776,7 +1052,7 @@ exports.recordGRN = async (req, res) => {
         }
 
         const date = receivedDate ? new Date(receivedDate) : new Date();
-        const autoGrn = grnNumber || `GRN-${Date.now()}`;
+        const autoGrn = grnNumber || generate4to5DigitCode('GRN');
         const processedItems = [];
 
         for (const item of items) {
@@ -791,9 +1067,16 @@ exports.recordGRN = async (req, res) => {
             rawMat.currentStock = newStock;
             rawMat.lastPurchaseRate = rate;
 
+            if (item.expiryDate) {
+                const itemExp = new Date(item.expiryDate);
+                if (!rawMat.earliestExpiryDate || itemExp < new Date(rawMat.earliestExpiryDate)) {
+                    rawMat.earliestExpiryDate = itemExp;
+                }
+            }
+
             // Update moving average rate
             if (rawMat.averagePurchaseRate > 0) {
-                rawMat.averagePurchaseRate = parseFloat(((rawMat.averagePurchaseRate + rate) / 2).toFixed(2));
+                rawMat.averagePurchaseRate = parseFloat(((rawMat.averagePurchaseRate + rate) / 2).toFixed(3));
             } else {
                 rawMat.averagePurchaseRate = rate;
             }
@@ -817,6 +1100,7 @@ exports.recordGRN = async (req, res) => {
                 rate: rate,
                 totalAmount: qty * rate,
                 grnNumber: autoGrn,
+                vendor: vendorName || item.vendorName || '',
                 lotNumber: item.lotNumber || `LOT-${autoGrn}`,
                 expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
                 storageType: rawMat.storageType,
@@ -865,13 +1149,13 @@ exports.getPriceTrends = async (req, res) => {
 
 exports.createProductionOrder = async (req, res) => {
     try {
-        const { orderNumber, productionDate, priority, items, notes } = req.body;
+        const { orderNumber, buyerName, buyerOrderId, productionDate, priority, items, notes } = req.body;
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ success: false, message: 'Production order must have at least one product item' });
         }
 
-        const autoOrderNumber = orderNumber || `PO-${Date.now()}`;
+        const autoOrderNumber = orderNumber || generate4to5DigitCode('PO');
         const processedItems = [];
 
         for (const it of items) {
@@ -887,8 +1171,12 @@ exports.createProductionOrder = async (req, res) => {
             }
 
             const targetPouches = Number(it.targetPouches);
-            const nominalYield = recipe.nominalBatchYieldPouches || 250;
-            const batches = parseFloat((targetPouches / nominalYield).toFixed(4));
+            const packSize = Number(it.packSize) || (recipe.packSizes && recipe.packSizes[0]) || 0;
+            let nominalYield = recipe.nominalBatchYieldPouches || 250;
+            if (recipe.batchCookedWeightKg > 0 && packSize > 0) {
+                nominalYield = parseFloat((recipe.batchCookedWeightKg / packSize).toFixed(3));
+            }
+            const batches = parseFloat((targetPouches / nominalYield).toFixed(3));
 
             processedItems.push({
                 recipe: recipe._id,
@@ -901,6 +1189,8 @@ exports.createProductionOrder = async (req, res) => {
 
         const prodOrder = await ProductionOrder.create({
             orderNumber: autoOrderNumber,
+            buyerName: buyerName || '',
+            buyerOrderId: buyerOrderId || null,
             productionDate: productionDate ? new Date(productionDate) : new Date(),
             priority: priority || 'NORMAL',
             items: processedItems,
@@ -934,35 +1224,278 @@ exports.getProductionOrders = async (req, res) => {
     }
 };
 
+exports.updateProductionOrder = async (req, res) => {
+    try {
+        const { buyerName, buyerOrderId, productionDate, priority, items, notes } = req.body;
+        const order = await ProductionOrder.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Production order not found' });
+        }
+
+        if (buyerName !== undefined) order.buyerName = buyerName;
+        if (buyerOrderId !== undefined) order.buyerOrderId = buyerOrderId;
+        if (productionDate) order.productionDate = new Date(productionDate);
+        if (priority) order.priority = priority;
+        if (notes !== undefined) order.notes = notes;
+
+        if (items && Array.isArray(items) && items.length > 0) {
+            const processedItems = [];
+            for (const it of items) {
+                const recipe = await Recipe.findOne({
+                    $or: [
+                        ...(it.recipeId ? [{ _id: it.recipeId }] : []),
+                        { productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' } }
+                    ]
+                });
+
+                if (!recipe) {
+                    return res.status(400).json({ success: false, message: `Recipe not found for "${it.productName}"` });
+                }
+
+                const targetPouches = Number(it.targetPouches);
+                const packSize = Number(it.packSize) || (recipe.packSizes && recipe.packSizes[0]) || 0;
+                let nominalYield = recipe.nominalBatchYieldPouches || 250;
+                if (recipe.batchCookedWeightKg > 0 && packSize > 0) {
+                    nominalYield = parseFloat((recipe.batchCookedWeightKg / packSize).toFixed(3));
+                }
+                const batches = parseFloat((targetPouches / nominalYield).toFixed(3));
+
+                processedItems.push({
+                    recipe: recipe._id,
+                    productName: recipe.productName,
+                    targetPouches,
+                    nominalYield,
+                    batches
+                });
+            }
+            order.items = processedItems;
+        }
+
+        await order.save();
+        res.status(200).json({ success: true, message: 'Production order updated successfully', data: order });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deleteProductionOrder = async (req, res) => {
+    try {
+        const order = await ProductionOrder.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Production order not found' });
+        }
+
+        await ProductionOrder.findByIdAndDelete(req.params.id);
+        res.status(200).json({ success: true, message: 'Production order deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// ==========================================
+// COMPLETE MASTER BUYER ORDERS
+// ==========================================
+
+exports.createBuyerOrder = async (req, res) => {
+    try {
+        const { orderNumber, buyerName, orderDate, deliveryDate, items, notes } = req.body;
+        if (!buyerName || !items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, message: 'Buyer name and at least one item are required' });
+        }
+
+        const autoOrderNumber = orderNumber || generate4to5DigitCode('BO');
+        const processedItems = [];
+
+        for (const it of items) {
+            let recipeId = it.recipeId || null;
+            if (!recipeId) {
+                const rec = await Recipe.findOne({
+                    productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                });
+                if (rec) recipeId = rec._id;
+            }
+            processedItems.push({
+                recipe: recipeId,
+                productName: it.productName.trim(),
+                targetPouches: Number(it.targetPouches),
+                packSize: Number(it.packSize) || 1,
+                notes: it.notes || ''
+            });
+        }
+
+        const buyerOrder = await BuyerOrder.create({
+            orderNumber: autoOrderNumber,
+            buyerName: buyerName.trim(),
+            orderDate: orderDate ? new Date(orderDate) : new Date(),
+            deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
+            items: processedItems,
+            status: 'PENDING',
+            notes: notes || ''
+        });
+
+        res.status(201).json({ success: true, data: buyerOrder });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.getBuyerOrders = async (req, res) => {
+    try {
+        const { status, buyerName } = req.query;
+        let query = {};
+        if (status) query.status = status;
+        if (buyerName) query.buyerName = { $regex: buyerName, $options: 'i' };
+
+        const orders = await BuyerOrder.find(query).sort({ createdAt: -1 });
+        res.status(200).json({ success: true, count: orders.length, data: orders });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.updateBuyerOrder = async (req, res) => {
+    try {
+        const { buyerName, orderNumber, orderDate, deliveryDate, items, status, notes } = req.body;
+        const order = await BuyerOrder.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Buyer order not found' });
+        }
+
+        if (buyerName) order.buyerName = buyerName.trim();
+        if (orderNumber) order.orderNumber = orderNumber.trim();
+        if (orderDate) order.orderDate = new Date(orderDate);
+        if (deliveryDate !== undefined) order.deliveryDate = deliveryDate ? new Date(deliveryDate) : null;
+        if (status) order.status = status;
+        if (notes !== undefined) order.notes = notes;
+
+        if (items && Array.isArray(items) && items.length > 0) {
+            const processedItems = [];
+            for (const it of items) {
+                let recipeId = it.recipeId || null;
+                let rec = null;
+                if (recipeId) rec = await Recipe.findById(recipeId);
+                if (!rec && it.productName) {
+                    rec = await Recipe.findOne({
+                        productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                    });
+                    if (rec) recipeId = rec._id;
+                }
+                const packSize = Number(it.packSize) || (rec && rec.packSizes && rec.packSizes[0]) || 1;
+                processedItems.push({
+                    recipe: recipeId,
+                    productName: it.productName.trim(),
+                    targetPouches: Number(it.targetPouches),
+                    packSize: packSize,
+                    notes: it.notes || ''
+                });
+            }
+            order.items = processedItems;
+        }
+
+        await order.save();
+        res.status(200).json({ success: true, data: order });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deleteBuyerOrder = async (req, res) => {
+    try {
+        const order = await BuyerOrder.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Buyer order not found' });
+        }
+        await BuyerOrder.findByIdAndDelete(req.params.id);
+        res.status(200).json({ success: true, message: 'Buyer order deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 // ==========================================
 // 7. TIME-PHASED MRP CALCULATION & PERISHABLE ALERTS
 // ==========================================
 
 exports.calculateMRP = async (req, res) => {
     try {
-        // Find all active planned production orders sorted chronologically
-        const orders = await ProductionOrder.find({
-            status: { $in: ['PLANNED', 'IN_PROGRESS'] }
-        }).sort({ productionDate: 1 }).populate('items.recipe');
+        const { orderIds, buyerOrderIds } = req.query;
+        let orders = [];
+        const hasOrderIdsParam = orderIds !== undefined;
+        const hasBuyerOrderIdsParam = buyerOrderIds !== undefined;
+
+        if (hasOrderIdsParam) {
+            const idList = orderIds.split(',').map(s => s.trim()).filter(Boolean);
+            if (idList.length > 0) {
+                orders = await ProductionOrder.find({
+                    _id: { $in: idList },
+                    status: { $in: ['PLANNED', 'IN_PROGRESS'] }
+                })
+                .sort({ productionDate: 1 })
+                .populate('items.recipe');
+            }
+        } else if (!hasBuyerOrderIdsParam) {
+            // Backward compatibility if neither param is provided: all planned/in_progress
+            orders = await ProductionOrder.find({
+                status: { $in: ['PLANNED', 'IN_PROGRESS'] }
+            })
+            .sort({ productionDate: 1 })
+            .populate('items.recipe');
+        }
+
+        let buyerOrders = [];
+        if (hasBuyerOrderIdsParam) {
+            const buyerIdList = buyerOrderIds.split(',').map(s => s.trim()).filter(Boolean);
+            if (buyerIdList.length > 0) {
+                buyerOrders = await BuyerOrder.find({
+                    _id: { $in: buyerIdList }
+                })
+                .sort({ deliveryDate: 1, orderDate: 1 })
+                .populate('items.recipe');
+            }
+        }
 
         // Fetch all raw materials
         const allMaterials = await RawMaterial.find({ isActive: true });
         const materialMap = new Map();
         allMaterials.forEach(m => materialMap.set(String(m._id), m));
 
-        // Find incoming pending purchase orders
-        const pendingPOs = await PurchaseOrder.find({
-            status: { $in: ['DRAFT', 'SENT'] }
+        // Fetch all recipes for reliable lookup (handles unpopulated recipe refs and name matches)
+        const allRecipes = await Recipe.find();
+        const recipeMap = new Map();
+        allRecipes.forEach(r => {
+            recipeMap.set(String(r._id), r);
+            recipeMap.set(r.productName.trim().toLowerCase(), r);
         });
 
+        // Find active incoming material order batches sorted by date descending
+        const activeBatches = await MaterialOrder.find({ status: 'ORDERED' }).sort({ orderDate: -1 });
+
+        // Map incoming batches by both rawMaterialId and materialName lowercase for persistent lookup
         const incomingMap = new Map();
-        pendingPOs.forEach(po => {
-            po.items.forEach(it => {
-                if (it.rawMaterial) {
-                    const id = String(it.rawMaterial);
-                    const pendingQty = Math.max(0, it.orderQty - (it.receivedQty || 0));
-                    incomingMap.set(id, (incomingMap.get(id) || 0) + pendingQty);
+        activeBatches.forEach(b => {
+            const batchObj = {
+                _id: b._id,
+                orderQty: b.orderQty,
+                orderDate: b.orderDate,
+                unit: b.unit,
+                vendor: b.vendor,
+                notes: b.notes
+            };
+
+            const keys = new Set();
+            if (b.rawMaterial) keys.add(String(b.rawMaterial));
+            if (b.materialName) keys.add(b.materialName.trim().toLowerCase());
+
+            keys.forEach(k => {
+                if (!incomingMap.has(k)) {
+                    incomingMap.set(k, {
+                        totalQty: 0,
+                        batches: []
+                    });
                 }
+                const entry = incomingMap.get(k);
+                entry.totalQty += b.orderQty;
+                entry.batches.push(batchObj);
             });
         });
 
@@ -970,26 +1503,34 @@ exports.calculateMRP = async (req, res) => {
         // key: rawMaterialId or materialName
         const reqMap = new Map();
 
+        // 1. Process Planned Production Batches
         for (const order of orders) {
             for (const item of order.items) {
-                const recipe = item.recipe;
+                let recipe = item.recipe;
+                if (!recipe || !recipe.ingredients) {
+                    if (item.recipe) recipe = recipeMap.get(String(item.recipe._id || item.recipe));
+                    if (!recipe && item.productName) recipe = recipeMap.get(item.productName.trim().toLowerCase());
+                }
                 if (!recipe || !recipe.ingredients) continue;
 
-                const batches = item.batches;
+                const itemPackSize = Number(item.packSize) || (recipe.packSizes && recipe.packSizes[0]) || 0;
+                let nominalYield = item.nominalYield || recipe.nominalBatchYieldPouches || 250;
+                if (recipe.batchCookedWeightKg > 0 && itemPackSize > 0) {
+                    nominalYield = recipe.batchCookedWeightKg / itemPackSize;
+                }
+                const batches = (item.batches && !itemPackSize) ? item.batches : parseFloat((Number(item.targetPouches) / nominalYield).toFixed(3));
 
                 for (const ing of recipe.ingredients) {
                     let rmId = ing.rawMaterial ? String(ing.rawMaterial) : null;
                     let rm = rmId ? materialMap.get(rmId) : null;
 
                     if (!rm) {
-                        // Match by name
                         rm = allMaterials.find(m => m.name.toLowerCase() === ing.materialName.toLowerCase());
                         if (rm) rmId = String(rm._id);
                     }
 
                     const key = rmId || ing.materialName.toLowerCase();
 
-                    // Convert units to base unit if necessary (e.g. g -> kg, ml -> L)
                     let unitMultiplier = 1;
                     if ((ing.unit === 'g' || ing.unit === 'gm') && (!rm || rm.baseUnit === 'kg')) {
                         unitMultiplier = 0.001;
@@ -1000,6 +1541,14 @@ exports.calculateMRP = async (req, res) => {
                     const grossRequired = ing.edibleQuantity * unitMultiplier * (ing.lossFactor || 1.0) * batches;
 
                     if (!reqMap.has(key)) {
+                        const incomingInfo = (rmId && incomingMap.get(String(rmId))) ||
+                                             (rm && incomingMap.get(String(rm._id))) ||
+                                             (rm && incomingMap.get(rm.name.trim().toLowerCase())) ||
+                                             incomingMap.get(ing.materialName.trim().toLowerCase());
+                        const pipelineQty = incomingInfo ? parseFloat(incomingInfo.totalQty.toFixed(3)) : 0;
+                        const batchesList = incomingInfo ? incomingInfo.batches : [];
+                        const latestDate = batchesList.length > 0 ? batchesList[0].orderDate : null;
+
                         reqMap.set(key, {
                             rawMaterialId: rmId,
                             materialName: rm ? rm.name : ing.materialName,
@@ -1007,12 +1556,13 @@ exports.calculateMRP = async (req, res) => {
                             storageType: rm ? rm.storageType : ing.storageType,
                             baseUnit: rm ? rm.baseUnit : ing.unit,
                             currentStock: rm ? rm.currentStock : 0,
-                            minSafetyStock: rm ? rm.minSafetyStock : 0,
-                            leadTimeDays: rm ? rm.leadTimeDays : 1,
+                            leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
                             packSize: rm ? rm.packSize : 1,
                             preferredSupplier: rm ? rm.preferredSupplier : '',
                             lastPurchaseRate: rm ? rm.lastPurchaseRate : 0,
-                            incomingPipelineQty: rmId ? (incomingMap.get(rmId) || 0) : 0,
+                            incomingPipelineQty: pipelineQty,
+                            orderedBatches: batchesList,
+                            latestOrderDate: latestDate,
                             totalGrossRequired: 0,
                             ordersInvolved: [],
                             earliestProductionDate: order.productionDate
@@ -1037,12 +1587,101 @@ exports.calculateMRP = async (req, res) => {
             }
         }
 
+        // 2. Process Master Buyer Orders
+        for (const bo of buyerOrders) {
+            const boDate = bo.deliveryDate || bo.orderDate || new Date();
+            for (const item of (bo.items || [])) {
+                let recipe = item.recipe;
+                if (!recipe || !recipe.ingredients) {
+                    if (item.recipe) recipe = recipeMap.get(String(item.recipe._id || item.recipe));
+                    if (!recipe && item.productName) recipe = recipeMap.get(item.productName.trim().toLowerCase());
+                }
+                if (!recipe || !recipe.ingredients) continue;
+
+                const targetPouches = Number(item.targetPouches) || 0;
+                if (targetPouches <= 0) continue;
+
+                const itemPackSize = Number(item.packSize) || (recipe.packSizes && recipe.packSizes[0]) || 0;
+                let nominalYield = recipe.nominalBatchYieldPouches || 250;
+                if (recipe.batchCookedWeightKg > 0 && itemPackSize > 0) {
+                    nominalYield = recipe.batchCookedWeightKg / itemPackSize;
+                }
+                const batches = parseFloat((targetPouches / nominalYield).toFixed(3));
+
+                for (const ing of recipe.ingredients) {
+                    let rmId = ing.rawMaterial ? String(ing.rawMaterial) : null;
+                    let rm = rmId ? materialMap.get(rmId) : null;
+
+                    if (!rm) {
+                        rm = allMaterials.find(m => m.name.toLowerCase() === ing.materialName.toLowerCase());
+                        if (rm) rmId = String(rm._id);
+                    }
+
+                    const key = rmId || ing.materialName.toLowerCase();
+
+                    let unitMultiplier = 1;
+                    if ((ing.unit === 'g' || ing.unit === 'gm') && (!rm || rm.baseUnit === 'kg')) {
+                        unitMultiplier = 0.001;
+                    } else if (ing.unit === 'ml' && (!rm || rm.baseUnit === 'L')) {
+                        unitMultiplier = 0.001;
+                    }
+
+                    const grossRequired = ing.edibleQuantity * unitMultiplier * (ing.lossFactor || 1.0) * batches;
+
+                    if (!reqMap.has(key)) {
+                        const incomingInfo = (rmId && incomingMap.get(String(rmId))) ||
+                                             (rm && incomingMap.get(String(rm._id))) ||
+                                             (rm && incomingMap.get(rm.name.trim().toLowerCase())) ||
+                                             incomingMap.get(ing.materialName.trim().toLowerCase());
+                        const pipelineQty = incomingInfo ? parseFloat(incomingInfo.totalQty.toFixed(3)) : 0;
+                        const batchesList = incomingInfo ? incomingInfo.batches : [];
+                        const latestDate = batchesList.length > 0 ? batchesList[0].orderDate : null;
+
+                        reqMap.set(key, {
+                            rawMaterialId: rmId,
+                            materialName: rm ? rm.name : ing.materialName,
+                            materialCode: rm ? rm.code : ing.materialCode,
+                            storageType: rm ? rm.storageType : ing.storageType,
+                            baseUnit: rm ? rm.baseUnit : ing.unit,
+                            currentStock: rm ? rm.currentStock : 0,
+                            leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
+                            packSize: rm ? rm.packSize : 1,
+                            preferredSupplier: rm ? rm.preferredSupplier : '',
+                            lastPurchaseRate: rm ? rm.lastPurchaseRate : 0,
+                            incomingPipelineQty: pipelineQty,
+                            orderedBatches: batchesList,
+                            latestOrderDate: latestDate,
+                            totalGrossRequired: 0,
+                            ordersInvolved: [],
+                            earliestProductionDate: boDate
+                        });
+                    }
+
+                    const entry = reqMap.get(key);
+                    entry.totalGrossRequired += grossRequired;
+                    entry.ordersInvolved.push({
+                        orderId: bo._id,
+                        orderNumber: bo.orderNumber,
+                        productionDate: boDate,
+                        productName: item.productName,
+                        buyerName: bo.buyerName,
+                        isBuyerOrder: true,
+                        batches: batches,
+                        grossRequired: parseFloat(grossRequired.toFixed(3))
+                    });
+
+                    if (new Date(boDate) < new Date(entry.earliestProductionDate)) {
+                        entry.earliestProductionDate = boDate;
+                    }
+                }
+            }
+        }
+
         const now = new Date();
         const mrpResults = Array.from(reqMap.values()).map(entry => {
             const totalRequired = parseFloat(entry.totalGrossRequired.toFixed(3));
-            const availableEffective = entry.currentStock + entry.incomingPipelineQty;
-            const targetThreshold = totalRequired + entry.minSafetyStock;
-            const netShortfall = Math.max(0, targetThreshold - availableEffective);
+            // Net shortfall = Gross Required - Current Stock (No safety buffer)
+            const netShortfall = Math.max(0, totalRequired - entry.currentStock);
 
             // Commercial bag / pack rounding
             let suggestedOrderQty = 0;
@@ -1060,8 +1699,32 @@ exports.calculateMRP = async (req, res) => {
             // Lead time "Order-By" date calculation
             const earliestDate = new Date(entry.earliestProductionDate);
             const orderByDate = new Date(earliestDate.getTime() - (entry.leadTimeDays * 86400000));
-            const isUrgent = netShortfall > 0 && orderByDate <= now;
-            const isWarning = netShortfall > 0 && orderByDate <= new Date(now.getTime() + 2 * 86400000);
+            const isUrgent = netShortfall > 0 && entry.incomingPipelineQty === 0 && orderByDate <= now;
+            const isWarning = netShortfall > 0 && entry.incomingPipelineQty === 0 && orderByDate <= new Date(now.getTime() + 2 * 86400000);
+
+            // Estimated Arrival Date (based on ordered quantity & latest order date)
+            let estArrivalDate = null;
+            if (entry.latestOrderDate) {
+                const orderTime = new Date(entry.latestOrderDate).getTime();
+                estArrivalDate = new Date(orderTime + (entry.leadTimeDays * 86400000));
+            }
+
+            // Status determination:
+            // - If shortfall === 0: 'NOT REQUIRED'
+            // - If shortfall > 0:
+            //     - If incomingPipelineQty >= netShortfall: 'COMPLETE'
+            //     - Else if incomingPipelineQty > 0: 'PARTIAL'
+            //     - Else: 'DUE'
+            let status = 'DUE';
+            if (netShortfall === 0) {
+                status = 'NOT REQUIRED';
+            } else if (entry.incomingPipelineQty >= netShortfall) {
+                status = 'COMPLETE';
+            } else if (entry.incomingPipelineQty > 0) {
+                status = 'PARTIAL';
+            } else {
+                status = 'DUE';
+            }
 
             return {
                 ...entry,
@@ -1070,10 +1733,13 @@ exports.calculateMRP = async (req, res) => {
                 shortfallQuantity: parseFloat(netShortfall.toFixed(3)),
                 bagCount,
                 suggestedOrderQty,
-                estimatedOrderCost: parseFloat((suggestedOrderQty * entry.lastPurchaseRate).toFixed(2)),
+                estimatedOrderCost: parseFloat((suggestedOrderQty * entry.lastPurchaseRate).toFixed(3)),
                 orderByDate,
                 isUrgent,
-                isWarning
+                isWarning,
+                estArrivalDate,
+                status,
+                latestOrderDate: entry.latestOrderDate || null
             };
         });
 
@@ -1088,12 +1754,100 @@ exports.calculateMRP = async (req, res) => {
             success: true,
             totalOrdersEvaluated: orders.length,
             totalMaterialsRequired: mrpResults.length,
-            shortageCount: mrpResults.filter(r => r.isShortage).length,
+            shortageCount: mrpResults.filter(r => r.isShortage && r.status !== 'COMPLETE').length,
             urgentCount: mrpResults.filter(r => r.isUrgent).length,
             data: mrpResults
         });
     } catch (err) {
         console.error('MRP Calculation Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// ==========================================
+// MATERIAL INCOMING ORDER BATCHES (MULTI-BATCH)
+// ==========================================
+
+exports.getMaterialOrders = async (req, res) => {
+    try {
+        const { materialName, rawMaterialId } = req.query;
+        let query = { status: 'ORDERED' };
+        if (rawMaterialId) query.rawMaterial = rawMaterialId;
+        else if (materialName) query.materialName = { $regex: `^${materialName.trim()}$`, $options: 'i' };
+
+        const orders = await MaterialOrder.find(query)
+            .populate('rawMaterial', 'name code leadTimeDays preferredSupplier currentStock')
+            .sort({ orderDate: -1 });
+
+        const augmented = orders.map(ord => {
+            const doc = ord.toObject();
+            const leadTime = (doc.rawMaterial && doc.rawMaterial.leadTimeDays) ? doc.rawMaterial.leadTimeDays : 1;
+            const orderTime = new Date(doc.orderDate).getTime();
+            doc.leadTimeDays = leadTime;
+            doc.estArrivalDate = new Date(orderTime + (leadTime * 86400000));
+            doc.vendorName = doc.vendor || (doc.rawMaterial && doc.rawMaterial.preferredSupplier) || '—';
+            return doc;
+        });
+
+        res.status(200).json({ success: true, count: augmented.length, data: augmented });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.createMaterialOrderBatch = async (req, res) => {
+    try {
+        const { materialName, rawMaterialId, orderQty, orderDate, unit, vendor, notes } = req.body;
+        if (!materialName || !orderQty || Number(orderQty) <= 0) {
+            return res.status(400).json({ success: false, message: 'Material name and valid order quantity are required' });
+        }
+
+        let rmId = rawMaterialId || null;
+        if (!rmId) {
+            const rm = await RawMaterial.findOne({ name: { $regex: `^${materialName.trim()}$`, $options: 'i' } });
+            if (rm) rmId = rm._id;
+        }
+
+        const batch = await MaterialOrder.create({
+            materialName: materialName.trim(),
+            rawMaterial: rmId,
+            orderQty: Number(orderQty),
+            orderDate: orderDate ? new Date(orderDate) : new Date(),
+            unit: unit || 'kg',
+            vendor: vendor || '',
+            notes: notes || '',
+            status: 'ORDERED'
+        });
+
+        res.status(201).json({ success: true, message: 'Order batch recorded successfully', data: batch });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deleteMaterialOrderBatch = async (req, res) => {
+    try {
+        const batch = await MaterialOrder.findById(req.params.id);
+        if (!batch) {
+            return res.status(404).json({ success: false, message: 'Order batch not found' });
+        }
+        await MaterialOrder.findByIdAndDelete(req.params.id);
+        res.status(200).json({ success: true, message: 'Order batch deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.clearMaterialOrders = async (req, res) => {
+    try {
+        const { materialName, rawMaterialId } = req.body;
+        let query = { status: 'ORDERED' };
+        if (rawMaterialId) query.rawMaterial = rawMaterialId;
+        else if (materialName) query.materialName = { $regex: `^${materialName.trim()}$`, $options: 'i' };
+
+        await MaterialOrder.deleteMany(query);
+        res.status(200).json({ success: true, message: 'All incoming orders cleared for this material' });
+    } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -1137,7 +1891,7 @@ exports.getPerishableAlerts = async (req, res) => {
                         productionDate: order.productionDate,
                         productName: item.productName,
                         materialName: rm ? rm.name : ing.materialName,
-                        grossRequired: parseFloat(grossNeeded.toFixed(2)),
+                        grossRequired: parseFloat(grossNeeded.toFixed(3)),
                         unit: rm ? rm.baseUnit : ing.unit,
                         currentStock,
                         leadTimeDays: leadDays,
@@ -1175,7 +1929,7 @@ exports.createPurchaseOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Purchase order must have items' });
         }
 
-        const autoPo = poNumber || `PO-${Date.now()}`;
+        const autoPo = poNumber || generate4to5DigitCode('PO');
         const po = await PurchaseOrder.create({
             poNumber: autoPo,
             expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined,
@@ -1216,14 +1970,29 @@ exports.getPurchaseOrders = async (req, res) => {
 
 exports.createMaterialIssue = async (req, res) => {
     try {
-        const { productionOrderId, kitchenSupervisor, items, notes } = req.body;
+        const { productionOrderId, kitchenSupervisor, items, notes, buyerName, productName, batches } = req.body;
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ success: false, message: 'Material issue must have items' });
         }
 
-        const autoIssueNumber = `ISS-${Date.now()}`;
+        const autoIssueNumber = generate4to5DigitCode('ISS');
         const processedItems = [];
+
+        let resolvedBuyer = buyerName || '';
+        let resolvedProduct = productName || '';
+        const numBatches = batches !== undefined && batches !== null && Number(batches) > 0 ? Number(batches) : 1;
+
+        if (productionOrderId) {
+            const pOrder = await ProductionOrder.findById(productionOrderId).populate('items.recipe');
+            if (pOrder && pOrder.items && pOrder.items.length > 0) {
+                const first = pOrder.items[0];
+                if (!resolvedProduct) resolvedProduct = first.productName;
+                if (!resolvedBuyer) {
+                    resolvedBuyer = first.recipe?.buyerName || pOrder.buyerName || 'General';
+                }
+            }
+        }
 
         for (const it of items) {
             const rawMat = await RawMaterial.findById(it.rawMaterialId);
@@ -1232,9 +2001,10 @@ exports.createMaterialIssue = async (req, res) => {
             const issuedQty = Number(it.actualIssuedQty) || 0;
             const theoreticalGross = Number(it.theoreticalGrossQty) || 0;
             const variance = issuedQty - theoreticalGross;
-            const variancePercent = theoreticalGross > 0 ? parseFloat(((variance / theoreticalGross) * 100).toFixed(2)) : 0;
+            const variancePercent = theoreticalGross > 0 ? parseFloat(((variance / theoreticalGross) * 100).toFixed(3)) : 0;
 
             // Deduct stock from RawMaterial
+            const oldStock = rawMat.currentStock;
             const newStock = Math.max(0, rawMat.currentStock - issuedQty);
             rawMat.currentStock = newStock;
             await rawMat.save();
@@ -1251,13 +2021,15 @@ exports.createMaterialIssue = async (req, res) => {
                 totalAmount: issuedQty * rawMat.lastPurchaseRate,
                 storageType: rawMat.storageType,
                 referenceId: autoIssueNumber,
-                reason: `Kitchen store issue for production order ${productionOrderId || 'Direct'}`,
+                reason: `Kitchen store issue for ${numBatches} batch(es) of ${resolvedProduct || 'Recipe'}${productionOrderId ? ` (PO #${productionOrderId})` : ''}`,
                 createdBy: kitchenSupervisor || 'Kitchen Supervisor'
             });
 
             processedItems.push({
                 rawMaterial: rawMat._id,
                 materialName: rawMat.name,
+                openingStock: parseFloat(oldStock.toFixed(3)),
+                closingStock: parseFloat(newStock.toFixed(3)),
                 theoreticalEdibleQty: Number(it.theoreticalEdibleQty) || 0,
                 lossFactor: Number(it.lossFactor) || 1.0,
                 theoreticalGrossQty: theoreticalGross,
@@ -1273,10 +2045,16 @@ exports.createMaterialIssue = async (req, res) => {
             });
         }
 
+        const totalIssuedKg = processedItems.reduce((acc, it) => acc + (it.actualIssuedQty || 0), 0);
+
         const issue = await MaterialIssue.create({
             issueNumber: autoIssueNumber,
             productionOrder: productionOrderId || undefined,
+            batches: numBatches,
             kitchenSupervisor: kitchenSupervisor || '',
+            buyerName: resolvedBuyer || 'General',
+            productName: resolvedProduct || (processedItems[0]?.materialName ? `Recipe for ${processedItems[0].materialName}` : 'Recipe Issue'),
+            totalIssuedKg: parseFloat(totalIssuedKg.toFixed(3)),
             items: processedItems,
             notes: notes || ''
         });
@@ -1297,4 +2075,181 @@ exports.getMaterialIssues = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+
+// ==========================================
+// 9. KITCHEN VARIANCE TRACKER & FILLING LOOKUP
+// ==========================================
+
+exports.lookupFillingData = async (req, res) => {
+    try {
+        const { batchCode, shift, productName, buyerName } = req.query;
+
+        if (!batchCode && !productName) {
+            return res.status(400).json({ success: false, message: 'Batch code or product name is required' });
+        }
+
+        let query = {
+            sectionMain: { $regex: 'Filling', $options: 'i' }
+        };
+
+        if (shift && shift !== 'All') {
+            query.dayTime = shift;
+        }
+
+        const fillingDocs = await Data.find(query).sort({ createdAt: -1 }).limit(100);
+        let match = null;
+
+        for (const doc of fillingDocs) {
+            if (!doc.dataList || !Array.isArray(doc.dataList)) continue;
+            for (const item of doc.dataList) {
+                const batchMatches = batchCode
+                    ? item.batch && String(item.batch).trim().toLowerCase() === String(batchCode).trim().toLowerCase()
+                    : true;
+                const prodMatches = productName
+                    ? item.productName && item.productName.trim().toLowerCase() === productName.trim().toLowerCase()
+                    : true;
+                const buyerMatches = buyerName
+                    ? item.buyerName && item.buyerName.trim().toLowerCase() === buyerName.trim().toLowerCase()
+                    : true;
+
+                if (batchMatches && (prodMatches || !productName)) {
+                    const packSizeG = Number(item.packSize) || 250;
+                    const lossPouches = (Number(item.pouchLoss) || 0) + (Number(item.leaked) || 0);
+                    const wastageKg = parseFloat(((lossPouches * packSizeG) / 1000).toFixed(3));
+
+                    match = {
+                        date: doc.createdAt,
+                        shift: doc.dayTime,
+                        batchCode: item.batch || batchCode,
+                        buyerName: item.buyerName || buyerName || '',
+                        productName: item.productName || productName || '',
+                        pouchesFilled: Number(item.filled) || 0,
+                        packSizeG: packSizeG,
+                        pouchLoss: Number(item.pouchLoss) || 0,
+                        leaked: Number(item.leaked) || 0,
+                        wastageKg: wastageKg
+                    };
+                    break;
+                }
+            }
+            if (match) break;
+        }
+
+        res.status(200).json({
+            success: true,
+            found: !!match,
+            data: match
+        });
+    } catch (err) {
+        console.error('lookupFillingData error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.createKitchenVariance = async (req, res) => {
+    try {
+        const {
+            issueNumber,
+            buyerName,
+            productName,
+            productionDate,
+            shift,
+            issuedQuantityKg,
+            batches,
+            totalFilledPouches,
+            totalFilledWeightKg,
+            totalWastageKg,
+            totalYieldKg,
+            theoreticalGrossKg,
+            varianceKg,
+            variancePercent,
+            ingredientBreakdown,
+            supervisor,
+            notes
+        } = req.body;
+
+        if (!productName) {
+            return res.status(400).json({ success: false, message: 'Product name is required' });
+        }
+
+        const issuedKg = parseFloat((Number(issuedQuantityKg) || 0).toFixed(3));
+        const finalYieldKg = parseFloat((Number(totalYieldKg) || 0).toFixed(3));
+        const finalVarianceKg = parseFloat((finalYieldKg - issuedKg).toFixed(3));
+        const finalVariancePct = issuedKg > 0 ? parseFloat(((finalVarianceKg / issuedKg) * 100).toFixed(3)) : 0;
+
+        // Process batches array
+        const processedBatches = (batches || []).map(b => {
+            const pouches = Number(b.pouchesFilled) || 0;
+            const packSize = Number(b.packSizeG) || 250;
+            const extra = Number(b.extraWeightG) || 0;
+            const actualUnitWeightKg = parseFloat(((packSize + extra) / 1000).toFixed(4));
+            const filledWtKg = parseFloat((pouches * actualUnitWeightKg).toFixed(3));
+            const waste = parseFloat((Number(b.wastageKg) || 0).toFixed(3));
+            const bYield = parseFloat((filledWtKg + waste).toFixed(3));
+
+            return {
+                batchCode: (b.batchCode || '').trim(),
+                shift: b.shift || 'Day',
+                pouchesFilled: pouches,
+                packSizeG: packSize,
+                extraWeightG: extra,
+                actualPouchWeightKg: actualUnitWeightKg,
+                filledWeightKg: filledWtKg,
+                wastageKg: waste,
+                batchYieldKg: bYield
+            };
+        });
+
+        const batchCodesStr = processedBatches.map(b => b.batchCode).filter(Boolean).join(', ');
+
+        const record = await KitchenVariance.create({
+            issueNumber: (issueNumber || '').trim(),
+            buyerName: (buyerName || '').trim(),
+            productName: productName.trim(),
+            productionDate: productionDate ? new Date(productionDate) : new Date(),
+            batchNumber: batchCodesStr || (issueNumber || 'Direct Issue'),
+            shift: shift || (processedBatches[0]?.shift || 'Day'),
+            issuedQuantityKg: issuedKg,
+            batches: processedBatches,
+            totalFilledPouches: Number(totalFilledPouches) || processedBatches.reduce((a, b) => a + b.pouchesFilled, 0),
+            totalFilledWeightKg: parseFloat((Number(totalFilledWeightKg) || processedBatches.reduce((a, b) => a + b.filledWeightKg, 0)).toFixed(3)),
+            totalWastageKg: parseFloat((Number(totalWastageKg) || processedBatches.reduce((a, b) => a + b.wastageKg, 0)).toFixed(3)),
+            totalYieldKg: finalYieldKg,
+            theoreticalGrossKg: parseFloat((Number(theoreticalGrossKg) || 0).toFixed(3)),
+            varianceKg: finalVarianceKg,
+            variancePercent: finalVariancePct,
+            ingredientBreakdown: ingredientBreakdown || [],
+            supervisor: supervisor || 'Kitchen Supervisor',
+            notes: notes || ''
+        });
+
+        res.status(201).json({ success: true, data: record });
+    } catch (err) {
+        console.error('createKitchenVariance error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.getKitchenVariances = async (req, res) => {
+    try {
+        const { search, shift, buyerName } = req.query;
+        let query = {};
+        if (shift && shift !== 'All') query.shift = shift;
+        if (buyerName && buyerName !== 'All') query.buyerName = buyerName;
+        if (search) {
+            query.$or = [
+                { batchNumber: { $regex: search, $options: 'i' } },
+                { productName: { $regex: search, $options: 'i' } },
+                { issueNumber: { $regex: search, $options: 'i' } },
+                { buyerName: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const records = await KitchenVariance.find(query).sort({ productionDate: -1, createdAt: -1 });
+        res.status(200).json({ success: true, count: records.length, data: records });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 

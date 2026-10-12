@@ -11,10 +11,11 @@ import {
   SlidersHorizontal,
   History,
   Search,
-  CheckCircle2,
   X,
   FileSpreadsheet,
-  ArrowLeft
+  ArrowLeft,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL } from '../../redux/Utils/constants';
@@ -40,6 +41,13 @@ const UNIT_OPTIONS = [
   { value: 'custom', label: '+ Other / Custom Unit...' }
 ];
 
+const format3Decimals = (val) => {
+  if (val === null || val === undefined || val === '') return '0';
+  const num = Number(val);
+  if (isNaN(num)) return '0';
+  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+};
+
 const RawMaterials = () => {
   const navigate = useNavigate();
   const [materials, setMaterials] = useState([]);
@@ -47,13 +55,16 @@ const RawMaterials = () => {
   const [activeTab, setActiveTab] = useState('ALL'); // ALL, Cold, Ambient, LOW_STOCK
   const [search, setSearch] = useState('');
 
+  // History Modal View State (PURCHASE, FEFO, USAGE)
+  const [historyTab, setHistoryTab] = useState('PURCHASE');
+
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
-  const [priceHistory, setPriceHistory] = useState(null);
+  const [materialDetails, setMaterialDetails] = useState(null);
 
   // Form states
   const [isCustomUnit, setIsCustomUnit] = useState(false);
@@ -68,7 +79,8 @@ const RawMaterials = () => {
     leadTimeDays: 1,
     packSize: 1,
     preferredSupplier: '',
-    lastPurchaseRate: 0
+    lastPurchaseRate: 0,
+    earliestExpiryDate: ''
   });
 
   const [adjustment, setAdjustment] = useState({
@@ -135,7 +147,8 @@ const RawMaterials = () => {
           leadTimeDays: 1,
           packSize: 1,
           preferredSupplier: '',
-          lastPurchaseRate: 0
+          lastPurchaseRate: 0,
+          earliestExpiryDate: ''
         });
         fetchMaterials();
       }
@@ -219,16 +232,18 @@ const RawMaterials = () => {
     }
   };
 
-  const openPriceHistory = async (mat) => {
+  const openHistoryModal = async (mat) => {
     setSelectedMaterial(mat);
     setShowHistoryModal(true);
+    setMaterialDetails(null);
     try {
-      const res = await apiConnector(`${INVENTORY_MRP_URL}/price-trends/${mat._id}`, 'GET');
-      if (res.data?.success) {
-        setPriceHistory(res.data);
+      const detailRes = await apiConnector(`${INVENTORY_MRP_URL}/raw-materials/${mat._id}`, 'GET');
+      if (detailRes.data?.success) {
+        setMaterialDetails(detailRes.data.data);
       }
     } catch (err) {
       console.error(err);
+      toast.error('Failed to load history details');
     }
   };
 
@@ -243,13 +258,15 @@ const RawMaterials = () => {
 
     if (activeTab === 'Cold') return m.storageType === 'Cold';
     if (activeTab === 'Ambient') return m.storageType === 'Ambient';
-    if (activeTab === 'LOW_STOCK') return m.currentStock <= m.minSafetyStock;
+    if (activeTab === 'LOW_STOCK') return m.currentStock <= 0;
+    if (activeTab === 'FEFO') return m.fefoStatus === 'CRITICAL' || m.fefoStatus === 'EXPIRING_SOON' || m.fefoStatus === 'EXPIRED';
     return true;
   });
 
   const coldCount = materials.filter((m) => m.storageType === 'Cold').length;
   const ambientCount = materials.filter((m) => m.storageType === 'Ambient').length;
-  const lowStockCount = materials.filter((m) => m.currentStock <= m.minSafetyStock).length;
+  const lowStockCount = materials.filter((m) => m.currentStock <= 0).length;
+  const fefoCount = materials.filter((m) => m.fefoStatus === 'CRITICAL' || m.fefoStatus === 'EXPIRING_SOON' || m.fefoStatus === 'EXPIRED').length;
 
   return (
     <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
@@ -270,7 +287,7 @@ const RawMaterials = () => {
               <h1 className="text-3xl font-bold tracking-tight">Raw Material Inventory Ledger</h1>
             </div>
             <p className="text-gray-400 text-sm mt-1">
-              Live warehouse stock, Cold vs. Ambient segregation, safety thresholds & procurement rates
+              Live warehouse stock, Cold vs. Ambient segregation, expiry tracking & procurement rates
             </p>
           </div>
 
@@ -302,7 +319,7 @@ const RawMaterials = () => {
         </div>
 
         {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="bg-secondary/20 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
             <div className="flex items-center justify-between text-gray-400 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wider">Total Raw Materials</span>
@@ -332,11 +349,20 @@ const RawMaterials = () => {
 
           <div className="bg-rose-950/20 border border-rose-500/20 rounded-2xl p-5 backdrop-blur-sm">
             <div className="flex items-center justify-between text-rose-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Low Stock Alerts</span>
+              <span className="text-xs font-semibold uppercase tracking-wider">Out of Stock</span>
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div className="text-2xl font-bold text-rose-300">{lowStockCount}</div>
-            <div className="text-xs text-gray-400 mt-1">At or below safety buffer</div>
+            <div className="text-xs text-gray-400 mt-1">Zero or negative stock items</div>
+          </div>
+
+          <div className="bg-purple-950/20 border border-purple-500/20 rounded-2xl p-5 backdrop-blur-sm">
+            <div className="flex items-center justify-between text-purple-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">FEFO Attention</span>
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="text-2xl font-bold text-purple-300">{fefoCount}</div>
+            <div className="text-xs text-gray-400 mt-1">Expiring ≤30d / expired</div>
           </div>
         </div>
 
@@ -376,7 +402,16 @@ const RawMaterials = () => {
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              Low Stock ({lowStockCount})
+              Out of Stock ({lowStockCount})
+            </button>
+            <button
+              onClick={() => setActiveTab('FEFO')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                activeTab === 'FEFO' ? 'bg-purple-500 text-black font-semibold' : 'text-purple-400 hover:text-purple-300'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              FEFO Priority ({fefoCount})
             </button>
           </div>
 
@@ -412,24 +447,25 @@ const RawMaterials = () => {
                 <thead>
                   <tr className="bg-white/5 border-b border-white/10 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                     <th className="py-4 px-6">Material Name</th>
-                    <th className="py-4 px-4">Code</th>
                     <th className="py-4 px-4">Storage</th>
                     <th className="py-4 px-4 text-right">Current Stock</th>
-                    <th className="py-4 px-4 text-right">Safety Buffer</th>
-                    <th className="py-4 px-4 text-center">Status</th>
+                    <th className="py-4 px-4 text-center">
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-primary" />
+                        Expiry / FEFO
+                      </span>
+                    </th>
                     <th className="py-4 px-4 text-right">Last Rate</th>
-                    <th className="py-4 px-4 text-center">Pack Size</th>
+                    <th className="py-4 px-4 text-right">Avg Rate</th>
                     <th className="py-4 px-4 text-center">Lead Time</th>
-                    <th className="py-4 px-6 text-right">Actions</th>
+                    <th className="py-4 px-6 text-center">History</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-sm">
                   {filteredMaterials.map((m) => {
-                    const isLow = m.currentStock <= m.minSafetyStock;
                     return (
                       <tr key={m._id} className="hover:bg-white/5 transition-colors">
                         <td className="py-4 px-6 font-medium text-white">{m.name}</td>
-                        <td className="py-4 px-4 text-gray-400 font-mono text-xs">{m.code || '—'}</td>
                         <td className="py-4 px-4">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
@@ -447,39 +483,65 @@ const RawMaterials = () => {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-right font-mono font-semibold text-white">
-                          {m.currentStock.toLocaleString()} <span className="text-gray-400 text-xs font-normal">{m.baseUnit}</span>
-                        </td>
-                        <td className="py-4 px-4 text-right font-mono text-gray-400">
-                          {m.minSafetyStock} <span className="text-xs">{m.baseUnit}</span>
+                          {format3Decimals(m.currentStock)} <span className="text-gray-400 text-xs font-normal">{m.baseUnit}</span>
                         </td>
                         <td className="py-4 px-4 text-center">
-                          {isLow ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
-                              <AlertTriangle className="w-3 h-3" />
-                              Low Stock
-                            </span>
+                          {m.earliestExpiryDate ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="font-mono text-xs text-white">
+                                {new Date(m.earliestExpiryDate).toLocaleDateString('en-IN', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </span>
+                              {m.fefoStatus === 'EXPIRED' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+                                  EXPIRED ({Math.abs(m.daysUntilExpiry)}d ago)
+                                </span>
+                              )}
+                              {m.fefoStatus === 'CRITICAL' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+                                  FEFO PRIORITY ({m.daysUntilExpiry}d left)
+                                </span>
+                              )}
+                              {m.fefoStatus === 'EXPIRING_SOON' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  EXPIRING SOON ({m.daysUntilExpiry}d left)
+                                </span>
+                              )}
+                              {m.fefoStatus === 'SAFE' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                  FEFO SAFE ({m.daysUntilExpiry}d left)
+                                </span>
+                              )}
+                            </div>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Healthy
-                            </span>
+                            <div className="flex flex-col items-center">
+                              <span className="text-gray-500 text-xs">—</span>
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-gray-400 bg-white/5 border border-white/10 mt-0.5">
+                                Non-perishable
+                              </span>
+                            </div>
                           )}
                         </td>
                         <td className="py-4 px-4 text-right font-mono text-white">
-                          ₹{m.lastPurchaseRate > 0 ? m.lastPurchaseRate.toFixed(2) : '—'}
+                          ₹{m.lastPurchaseRate > 0 ? format3Decimals(m.lastPurchaseRate) : '—'}
+                          <span className="text-gray-500 text-xs font-normal">/{m.baseUnit}</span>
+                        </td>
+                        <td className="py-4 px-4 text-right font-mono text-gray-300">
+                          ₹{m.averagePurchaseRate > 0 ? format3Decimals(m.averagePurchaseRate) : '—'}
                           <span className="text-gray-500 text-xs font-normal">/{m.baseUnit}</span>
                         </td>
                         <td className="py-4 px-4 text-center text-gray-300 text-xs">
-                          {m.packSize > 1 ? `${m.packSize} ${m.baseUnit}/pack` : 'Loose'}
+                          {format3Decimals(m.leadTimeDays)} {m.leadTimeDays === 1 ? 'day' : 'days'}
                         </td>
-                        <td className="py-4 px-4 text-center text-gray-300 text-xs">
-                          {m.leadTimeDays} {m.leadTimeDays === 1 ? 'day' : 'days'}
-                        </td>
-                        <td className="py-4 px-6 text-right">
+                        <td className="py-4 px-6 text-center">
                           <button
-                            onClick={() => openPriceHistory(m)}
+                            type="button"
+                            onClick={() => openHistoryModal(m)}
                             className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-                            title="View Price Trend & Ledger"
+                            title="Open History Modal (Purchase Log, FEFO Rank, Usage Records)"
                           >
                             <History className="w-4 h-4 text-primary" />
                           </button>
@@ -594,7 +656,7 @@ const RawMaterials = () => {
                     <label className="block text-xs font-medium text-gray-300 mb-1">Opening Stock</label>
                     <input
                       type="number"
-                      step="any"
+                      step="0.001"
                       placeholder="0"
                       value={newMaterial.currentStock}
                       onChange={(e) => setNewMaterial({ ...newMaterial, currentStock: e.target.value })}
@@ -603,18 +665,7 @@ const RawMaterials = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Safety Stock</label>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="50"
-                      value={newMaterial.minSafetyStock}
-                      onChange={(e) => setNewMaterial({ ...newMaterial, minSafetyStock: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Lead Time (Days)</label>
                     <input
@@ -631,6 +682,7 @@ const RawMaterials = () => {
                     </label>
                     <input
                       type="number"
+                      step="0.001"
                       placeholder="25"
                       value={newMaterial.packSize}
                       onChange={(e) => setNewMaterial({ ...newMaterial, packSize: e.target.value })}
@@ -644,7 +696,7 @@ const RawMaterials = () => {
                     <label className="block text-xs font-medium text-gray-300 mb-1">Purchase Rate (₹)</label>
                     <input
                       type="number"
-                      step="any"
+                      step="0.001"
                       placeholder="0.00"
                       value={newMaterial.lastPurchaseRate}
                       onChange={(e) => setNewMaterial({ ...newMaterial, lastPurchaseRate: e.target.value })}
@@ -661,6 +713,18 @@ const RawMaterials = () => {
                       className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    Earliest Expiry Date (Optional, enables FEFO tracking)
+                  </label>
+                  <input
+                    type="date"
+                    value={newMaterial.earliestExpiryDate}
+                    onChange={(e) => setNewMaterial({ ...newMaterial, earliestExpiryDate: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                  />
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
@@ -757,14 +821,14 @@ const RawMaterials = () => {
                               <td className="p-2.5 font-medium text-white">{item.name}</td>
                               <td className="p-2.5 text-gray-300">{item.storageType}</td>
                               <td className="p-2.5 text-right font-mono text-primary">
-                                {item.openingStock} {item.unit}
+                                {format3Decimals(item.openingStock)} {item.unit}
                               </td>
-                              <td className="p-2.5 text-right font-mono text-gray-300">₹{item.rate}</td>
+                              <td className="p-2.5 text-right font-mono text-gray-300">₹{format3Decimals(item.rate)}</td>
                               <td className="p-2.5 text-gray-400">
                                 {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : '—'}
                               </td>
-                              <td className="p-2.5 text-center text-gray-300">{item.leadTimeDays}d</td>
-                              <td className="p-2.5 text-center text-gray-300">{item.packSize} {item.unit}</td>
+                              <td className="p-2.5 text-center text-gray-300">{format3Decimals(item.leadTimeDays)}d</td>
+                              <td className="p-2.5 text-center text-gray-300">{format3Decimals(item.packSize)} {item.unit}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -831,7 +895,7 @@ const RawMaterials = () => {
                     <option value="">-- Choose Ingredient --</option>
                     {materials.map((m) => (
                       <option key={m._id} value={m._id}>
-                        {m.name} (Current: {m.currentStock} {m.baseUnit})
+                        {m.name} (Current: {format3Decimals(m.currentStock)} {m.baseUnit})
                       </option>
                     ))}
                   </select>
@@ -858,7 +922,7 @@ const RawMaterials = () => {
                   </label>
                   <input
                     type="number"
-                    step="any"
+                    step="0.001"
                     required
                     placeholder="Enter quantity"
                     value={adjustment.quantity}
@@ -904,73 +968,318 @@ const RawMaterials = () => {
         {showHistoryModal && selectedMaterial && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-4xl h-[85vh] max-h-[750px] min-h-[520px] flex flex-col shadow-2xl overflow-hidden"
             >
-              <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-5">
-                <div>
-                  <h3 className="text-lg font-bold text-white">{selectedMaterial.name}</h3>
-                  <p className="text-xs text-gray-400">
-                    Storage: {selectedMaterial.storageType} | Current Stock: {selectedMaterial.currentStock} {selectedMaterial.baseUnit}
-                  </p>
+              {/* Modal Header & Top Stat Cards */}
+              <div className="p-6 pb-4 border-b border-white/10 shrink-0">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-white font-mono">{selectedMaterial.name}</h3>
+                    <p className="text-xs text-gray-400">
+                      Storage: {selectedMaterial.storageType} | Current Stock: {format3Decimals(selectedMaterial.currentStock)} {selectedMaterial.baseUnit}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowHistoryModal(false)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowHistoryModal(false)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-black/50 p-4 rounded-xl border border-white/10">
-                  <span className="text-xs text-gray-400 uppercase">Last Purchase Rate</span>
-                  <div className="text-xl font-bold font-mono text-primary mt-1">
-                    ₹{selectedMaterial.lastPurchaseRate.toFixed(2)} / {selectedMaterial.baseUnit}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-black/50 p-3.5 rounded-xl border border-white/10">
+                    <span className="text-xs text-gray-400 uppercase">Last Purchase Rate</span>
+                    <div className="text-lg font-bold font-mono text-primary mt-1">
+                      ₹{format3Decimals(selectedMaterial.lastPurchaseRate)} / {selectedMaterial.baseUnit}
+                    </div>
+                  </div>
+                  <div className="bg-black/50 p-3.5 rounded-xl border border-white/10">
+                    <span className="text-xs text-gray-400 uppercase">Average Purchase Rate</span>
+                    <div className="text-lg font-bold font-mono text-white mt-1">
+                      ₹{format3Decimals(selectedMaterial.averagePurchaseRate)} / {selectedMaterial.baseUnit}
+                    </div>
+                  </div>
+                  <div className="bg-black/50 p-3.5 rounded-xl border border-white/10">
+                    <span className="text-xs text-gray-400 uppercase">Earliest Expiry</span>
+                    <div className="text-sm font-bold font-mono text-white mt-1">
+                      {selectedMaterial.earliestExpiryDate
+                        ? new Date(selectedMaterial.earliestExpiryDate).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric'
+                          })
+                        : 'Non-dated'}
+                    </div>
+                    {selectedMaterial.fefoStatus && selectedMaterial.fefoStatus !== 'NO_EXPIRY' && (
+                      <span className="text-[11px] text-gray-400">
+                        Status: {selectedMaterial.fefoStatus}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="bg-black/50 p-4 rounded-xl border border-white/10">
-                  <span className="text-xs text-gray-400 uppercase">Average Purchase Rate</span>
-                  <div className="text-xl font-bold font-mono text-white mt-1">
-                    ₹{selectedMaterial.averagePurchaseRate.toFixed(2)} / {selectedMaterial.baseUnit}
-                  </div>
+              </div>
+
+              {/* Modal Sub-Tabs */}
+              <div className="px-6 pt-4 pb-2 shrink-0">
+                <div className="flex items-center gap-2 bg-black/60 p-1.5 rounded-xl border border-white/10 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTab('PURCHASE')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                      historyTab === 'PURCHASE'
+                        ? 'bg-primary text-black font-bold shadow-md'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>1. Purchase History Log</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      historyTab === 'PURCHASE' ? 'bg-black/20 text-black font-bold' : 'bg-white/10 text-gray-300'
+                    }`}>
+                      {materialDetails?.purchaseHistory?.length ?? 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTab('FEFO')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                      historyTab === 'FEFO'
+                        ? 'bg-purple-500 text-black font-bold shadow-md'
+                        : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>2. FEFO Rank</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      historyTab === 'FEFO' ? 'bg-black/20 text-black font-bold' : 'bg-purple-500/20 text-purple-300'
+                    }`}>
+                      {materialDetails?.activeLots?.length ?? 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTab('USAGE')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+                      historyTab === 'USAGE'
+                        ? 'bg-emerald-400 text-black font-bold shadow-md'
+                        : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>3. Usage Records</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      historyTab === 'USAGE' ? 'bg-black/20 text-black font-bold' : 'bg-emerald-500/20 text-emerald-300'
+                    }`}>
+                      {materialDetails?.usageRecords?.length ?? 0}
+                    </span>
+                  </button>
                 </div>
               </div>
 
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-                Purchase Price History Log
-              </h4>
-
-              {priceHistory && priceHistory.history && priceHistory.history.length > 0 ? (
-                <div className="bg-black/50 border border-white/10 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-white/5 border-b border-white/10 text-gray-400">
-                        <th className="p-3">Date</th>
-                        <th className="p-3">Rate (₹)</th>
-                        <th className="p-3">GRN Number</th>
-                        <th className="p-3">Vendor</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {priceHistory.history.map((h, i) => (
-                        <tr key={i} className="hover:bg-white/5">
-                          <td className="p-3 text-gray-300">{new Date(h.date).toLocaleDateString()}</td>
-                          <td className="p-3 font-mono font-semibold text-primary">₹{h.rate.toFixed(2)}</td>
-                          <td className="p-3 font-mono text-gray-400">{h.grnNumber || '—'}</td>
-                          <td className="p-3 text-gray-300">{h.vendor || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto px-6 pb-6 pt-2">
+                {!materialDetails ? (
+                  <div className="h-full min-h-[220px] flex flex-col items-center justify-center gap-3 bg-black/40 border border-white/5 rounded-xl">
+                    <Loader />
+                    <p className="text-xs text-gray-400">Loading history records...</p>
+                  </div>
+                ) : (
+                  <>
+                  {/* 1. PURCHASE HISTORY LOG */}
+                  {historyTab === 'PURCHASE' && (
+                    <div>
+                  {(!materialDetails?.purchaseHistory || materialDetails.purchaseHistory.length === 0) ? (
+                    <div className="py-12 text-center bg-black/40 border border-white/5 rounded-xl">
+                      <FileSpreadsheet className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                      <p className="text-xs text-gray-400">
+                        No previous purchase history or GRN entries recorded for this material.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-black/50 border border-white/10 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-white/5 border-b border-white/10 text-gray-400 font-semibold uppercase tracking-wider">
+                              <th className="p-3">Date</th>
+                              <th className="p-3 text-right">Quantity</th>
+                              <th className="p-3 text-right">Rate</th>
+                              <th className="p-3 text-right">Cost</th>
+                              <th className="p-3">Vendor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {materialDetails.purchaseHistory.map((p, idx) => (
+                              <tr key={p._id || idx} className="hover:bg-white/5">
+                                <td className="p-3 text-gray-300 font-mono">
+                                  {new Date(p.date).toLocaleDateString('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </td>
+                                <td className="p-3 text-right font-mono font-bold text-white">
+                                  {format3Decimals(p.quantity)} <span className="text-gray-400 text-xs font-normal">{p.unit || selectedMaterial.baseUnit}</span>
+                                </td>
+                                <td className="p-3 text-right font-mono font-semibold text-primary">
+                                  ₹{format3Decimals(p.rate)}
+                                  <span className="text-gray-500 text-[11px] font-normal">/{p.unit || selectedMaterial.baseUnit}</span>
+                                </td>
+                                <td className="p-3 text-right font-mono font-bold text-emerald-400">
+                                  ₹{format3Decimals(p.cost || (p.quantity * p.rate))}
+                                </td>
+                                <td className="p-3 text-gray-200">
+                                  <span className="font-medium">{p.vendor || selectedMaterial.preferredSupplier || '—'}</span>
+                                  {p.grnNumber && p.grnNumber !== '—' && (
+                                    <span className="ml-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-gray-400">
+                                      {p.grnNumber}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-xs text-gray-500 italic text-center py-4">
-                  No previous GRN price entries recorded yet.
-                </p>
               )}
+
+              {/* 2. FEFO RANK */}
+              {historyTab === 'FEFO' && (
+                <div>
+                  {(!materialDetails?.activeLots || materialDetails.activeLots.length === 0) ? (
+                    <div className="py-12 text-center bg-black/40 border border-white/5 rounded-xl">
+                      <Clock className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                      <p className="text-xs text-gray-400">
+                        No active inward batch lots in the FEFO priority queue.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-black/50 border border-white/10 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-white/5 border-b border-white/10 text-gray-400 font-semibold uppercase tracking-wider">
+                              <th className="p-3">FEFO Rank</th>
+                              <th className="p-3">Batch / Lot</th>
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Expiry Date</th>
+                              <th className="p-3 text-right">Qty Inward</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {materialDetails.activeLots.map((lot, idx) => (
+                              <tr key={lot._id || idx} className="hover:bg-white/5">
+                                <td className="p-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    idx === 0 ? 'bg-primary text-black font-semibold' : 'bg-white/10 text-gray-300'
+                                  }`}>
+                                    #{idx + 1} {idx === 0 ? 'DISPATCH FIRST' : ''}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono text-gray-300">
+                                  {lot.lotNumber || lot.grnNumber || lot.transactionType}
+                                </td>
+                                <td className="p-3 text-gray-400">
+                                  {new Date(lot.createdAt).toLocaleDateString()}
+                                </td>
+                                <td className="p-3 font-mono">
+                                  {lot.expiryDate ? (
+                                    <span className={new Date(lot.expiryDate) < new Date() ? 'text-rose-400 font-semibold' : 'text-emerald-400'}>
+                                      {new Date(lot.expiryDate).toLocaleDateString()}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-500">Non-dated</span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right font-mono font-semibold text-white">
+                                  {format3Decimals(lot.quantity)} {lot.unit || selectedMaterial.baseUnit}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 3. USAGE RECORDS */}
+              {historyTab === 'USAGE' && (
+                <div>
+                  {(!materialDetails?.usageRecords || materialDetails.usageRecords.length === 0) ? (
+                    <div className="py-12 text-center bg-black/40 border border-white/5 rounded-xl">
+                      <History className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                      <p className="text-xs text-gray-400">
+                        No kitchen store usage records logged for this material yet.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-black/50 border border-white/10 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-white/5 border-b border-white/10 text-gray-400 font-semibold uppercase tracking-wider">
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Recipe Name</th>
+                              <th className="p-3 text-right">Opening Balance</th>
+                              <th className="p-3 text-right">Used Qty</th>
+                              <th className="p-3 text-right">Closing Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {materialDetails.usageRecords.map((rec, idx) => (
+                              <tr key={rec._id || idx} className="hover:bg-white/5">
+                                <td className="p-3 font-mono text-gray-300">
+                                  {new Date(rec.date).toLocaleDateString('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </td>
+                                <td className="p-3 font-medium text-white">
+                                  {rec.recipeName || 'Recipe Issue'}
+                                  {rec.batches && rec.batches !== 1 && (
+                                    <span className="ml-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary">
+                                      {rec.batches} b
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right font-mono font-semibold text-cyan-300">
+                                  {rec.openingBalance !== null && rec.openingBalance !== undefined
+                                    ? `${format3Decimals(rec.openingBalance)} ${rec.unit || selectedMaterial.baseUnit}`
+                                    : '—'}
+                                </td>
+                                <td className="p-3 text-right font-mono font-bold text-primary">
+                                  - {format3Decimals(rec.usedQty)} {rec.unit || selectedMaterial.baseUnit}
+                                </td>
+                                <td className="p-3 text-right font-mono font-semibold text-emerald-400">
+                                  {rec.closingBalance !== null && rec.closingBalance !== undefined
+                                    ? `${format3Decimals(rec.closingBalance)} ${rec.unit || selectedMaterial.baseUnit}`
+                                    : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+                </>
+              )}
+              </div>
             </motion.div>
           </div>
         )}

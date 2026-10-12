@@ -56,7 +56,7 @@ const Month = () => {
           </div>
 
           {/* Month Selector Carousel */}
-          <div className="flex items-center gap-2 bg-[#141414] p-1.5 rounded-xl border border-white/10">
+          <div className="flex items-center gap-2 bg-black p-1.5 rounded-xl border border-white/10">
             <button
               type="button"
               onClick={() => {
@@ -111,7 +111,7 @@ const Month = () => {
         </div>
 
         {/* Calendar Grid */}
-        <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 p-6 backdrop-blur-xl shadow-2xl">
+        <div className="rounded-2xl border border-white/10 bg-black p-6 backdrop-blur-xl shadow-2xl">
           <div className="grid grid-cols-4 sm:grid-cols-7 md:grid-cols-10 lg:grid-cols-11 gap-3 sm:gap-4">
             {days.slice(0, selectedMonth.days).map((day, i) => (
               <motion.button

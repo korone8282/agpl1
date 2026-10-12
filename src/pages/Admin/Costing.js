@@ -12,7 +12,12 @@ import { DATA_URL } from '../../redux/Utils/constants';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
 import PageTransition from '../PageTransition';
 
-const POUCH_WEIGHT_KG = 0.258;
+function getPackSizeKg(val) {
+  const n = Number(val) || 0;
+  if (n <= 0) return 0.25;
+  if (n > 5) return n / 1000;
+  return n;
+}
 const ALL = "All";
 
 const months = [
@@ -34,7 +39,7 @@ const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 const num = (value) => Number(value) || 0;
 
-const formatNum = (value, digits = 2) => num(value).toFixed(digits);
+const formatNum = (value, digits = 3) => num(value).toFixed(digits);
 
 const formatInt = (value) => Math.round(num(value)).toString();
 
@@ -90,11 +95,13 @@ function buildCostingRows(data) {
         wastage: 0,
         pouchPacked: 0,
         pouchesProduced: 0,
+        filledPouchWeightKg: 0,
       });
     }
     return map.get(key);
   }
 
+  // Pass 1: Kitchen & Filling (Production only generates product rows on the left)
   data.forEach((doc) => {
     const list = doc.dataList || [];
     if (!list.length) return;
@@ -104,30 +111,53 @@ function buildCostingRows(data) {
     const first = list[0];
     const section = doc.sectionMain;
 
-    if (section === 'Kitchen' && meta.kitchenWorkers === null) {
-      meta.kitchenWorkers = num(first.workersQuantity);
-    } else if (section === 'Filling' && meta.fillingWorkers === null) {
-      meta.fillingWorkers = num(first.workersQuantity);
-    } else if (section === 'Dispatch' && meta.dispatchWorkers === null) {
-      meta.dispatchWorkers = num(first.workersQuantity);
-    }
-
-    list.forEach(item => {
-      const row = getRow(dateKey, dateLabel, item.buyerName, item.productName, shift);
-
-      if (section === 'Kitchen') {
+    if (section === 'Kitchen') {
+      if (meta.kitchenWorkers === null) {
+        meta.kitchenWorkers = num(first.workersQuantity);
+      }
+      list.forEach(item => {
+        const row = getRow(dateKey, dateLabel, item.buyerName, item.productName, shift);
         row.productionQty += num(item.yield) * num(item.batchQuantity);
-      } else if (section === 'Filling') {
+      });
+    } else if (section === 'Filling') {
+      if (meta.fillingWorkers === null) {
+        meta.fillingWorkers = num(first.workersQuantity);
+      }
+      list.forEach(item => {
+        const row = getRow(dateKey, dateLabel, item.buyerName, item.productName, shift);
         const pouches = num(item.pouchQuantity);
+        const packSize = getPackSizeKg(item.packSize);
         row.pouchesProduced += pouches;
         meta.pouchesProduced += pouches;
         row.wastagePouches += num(item.empty);
         row.wastage += num(item.filled);
-      } else if (section === 'Dispatch') {
-        row.pouchPacked += num(item.pouchPacked);
-        row.wastagePouches += num(item.leaked) + num(item.foreignMatter);
+        row.filledPouchWeightKg += pouches * (packSize + 0.005);
+      });
+    }
+  });
+
+  // Pass 2: Dispatch (Only dispatch workers and packed quantities for existing production products)
+  data.forEach((doc) => {
+    const list = doc.dataList || [];
+    if (!list.length) return;
+    const { dateKey } = getDateInfo(doc.createdAt);
+    const shift = normalizeShift(doc.dayTime);
+    const meta = getMeta(dateKey, shift);
+    const first = list[0];
+    const section = doc.sectionMain;
+
+    if (section === 'Dispatch') {
+      if (meta.dispatchWorkers === null) {
+        meta.dispatchWorkers = num(first.workersQuantity);
       }
-    });
+      list.forEach(item => {
+        const key = `${dateKey}|||${item.buyerName}|||${item.productName}|||${shift}`;
+        if (map.has(key)) {
+          const row = map.get(key);
+          row.pouchPacked += num(item.pouchPacked);
+        }
+      });
+    }
   });
 
   return Array.from(map.values())
@@ -142,11 +172,12 @@ function buildCostingRows(data) {
       const costingPerPouch = meta.pouchesProduced > 0
         ? (kitchenCost + fillingCost) / meta.pouchesProduced
         : 0;
-      // Keep full precision through the formula; format only when displaying
-      const variance =
-        Number(row.productionQty) -
-        (Number(row.pouchesProduced) * POUCH_WEIGHT_KG) +
-        Number(row.wastage);
+
+      // Production Quantity (Kg) = (pouches filled * (pack size + 0.005)) + wastage (Kg)
+      const productionQuantityKg = Number(row.filledPouchWeightKg) + Number(row.wastage);
+
+      // Variance = Kitchen Yield Qty - Production Quantity (Kg)
+      const variance = Number(row.productionQty) - Number(productionQuantityKg);
 
       return {
         ...row,
@@ -157,6 +188,7 @@ function buildCostingRows(data) {
         kitchenCost,
         dispatchCost,
         costingPerPouch,
+        productionQuantityKg,
         variance,
       };
     })
@@ -267,6 +299,7 @@ const Costing = () => {
         productionQty: acc.productionQty + row.productionQty,
         wastagePouches: acc.wastagePouches + row.wastagePouches,
         wastage: acc.wastage + row.wastage,
+        productionQuantityKg: acc.productionQuantityKg + row.productionQuantityKg,
         pouchesProduced: acc.pouchesProduced + row.pouchesProduced,
         pouchPacked: acc.pouchPacked + row.pouchPacked,
         variance: acc.variance + row.variance,
@@ -285,6 +318,7 @@ const Costing = () => {
       kitchenCost: 0,
       wastagePouches: 0,
       wastage: 0,
+      productionQuantityKg: 0,
       pouchesProduced: 0,
       pouchPacked: 0,
       dispatchWorkers: 0,
@@ -455,7 +489,7 @@ const Costing = () => {
           </div>
 
           {/* Quick KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
               <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Pouches Produced</span>
               <span className="text-xl font-bold font-mono text-white">{formatInt(totals.pouchesProduced)}</span>
@@ -463,9 +497,9 @@ const Costing = () => {
             </div>
 
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
-              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Production Yield</span>
-              <span className="text-xl font-bold font-mono text-white">{formatNum(totals.productionQty)}</span>
-              <span className="text-[12px] text-zinc-500 block mt-0.5">Kg kitchen output</span>
+              <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Kitchen Yield</span>
+              <span className="text-xl font-bold font-mono text-white">{formatNum(totals.productionQty)} Kg</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Kitchen output</span>
             </div>
 
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
@@ -475,11 +509,17 @@ const Costing = () => {
             </div>
 
             <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
+              <span className="text-[13px] font-mono uppercase text-cyan-400 block mb-1">Production Qty</span>
+              <span className="text-xl font-bold font-mono text-cyan-400">{formatNum(totals.productionQuantityKg)} Kg</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Pouches × (Pack Size + 0.005) + Wastage</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
               <span className="text-[13px] font-mono uppercase text-zinc-400 block mb-1">Net Variance</span>
               <span className={`text-xl font-bold font-mono ${totals.variance < 0 ? "text-rose-400" : "text-emerald-400"}`}>
                 {formatNum(totals.variance)} Kg
               </span>
-              <span className="text-[12px] text-zinc-500 block mt-0.5">Reconciliation diff</span>
+              <span className="text-[12px] text-zinc-500 block mt-0.5">Kitchen - Production</span>
             </div>
 
             <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 col-span-2 sm:col-span-1">
@@ -510,6 +550,7 @@ const Costing = () => {
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouches</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (P)</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (Kg)</TableHead>
+                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Production Qty (Kg)</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Variance (Kg)</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Fill Workers</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Fill Cost/P</TableHead>
@@ -565,6 +606,7 @@ const Costing = () => {
                               <TableCell className={`font-mono text-xs text-white py-3 ${hoverBg}`}>{formatInt(row.pouchesProduced)}</TableCell>
                               <TableCell className={`font-mono text-xs text-zinc-400 py-3 ${hoverBg}`}>{formatInt(row.wastagePouches)}</TableCell>
                               <TableCell className={`font-mono text-xs text-amber-400 py-3 ${hoverBg}`}>{formatNum(row.wastage)}</TableCell>
+                              <TableCell className={`font-mono text-xs text-cyan-400 font-semibold py-3 ${hoverBg}`}>{formatNum(row.productionQuantityKg)}</TableCell>
                               <TableCell className={`font-mono text-xs py-3 ${hoverBg} ${row.variance < 0 ? "text-rose-400 font-semibold" : "text-emerald-400"}`}>
                                 {formatNum(row.variance)}
                               </TableCell>
@@ -614,6 +656,7 @@ const Costing = () => {
                           <TableCell className="py-4">{formatInt(totals.pouchesProduced)}</TableCell>
                           <TableCell className="py-4">{formatInt(totals.wastagePouches)}</TableCell>
                           <TableCell className="py-4 text-amber-400">{formatNum(totals.wastage)}</TableCell>
+                          <TableCell className="py-4 text-cyan-400 font-bold">{formatNum(totals.productionQuantityKg)}</TableCell>
                           <TableCell className={`py-4 ${totals.variance < 0 ? "text-rose-400" : "text-emerald-400"}`}>{formatNum(totals.variance)}</TableCell>
                           <TableCell className="border-l border-white/10 py-4">{formatInt(totals.fillingWorkers)}</TableCell>
                           <TableCell className="py-4">₹{formatNum((totals.fillingCost) / totals.pouchesProduced)}</TableCell>
@@ -627,7 +670,7 @@ const Costing = () => {
                       </>
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={17} className="text-center py-12 text-zinc-400 text-sm">
+                        <TableCell colSpan={18} className="text-center py-12 text-zinc-400 text-sm">
                           No matching records found for the selected filters.
                         </TableCell>
                       </TableRow>

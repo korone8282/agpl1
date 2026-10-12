@@ -5,6 +5,16 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        '2xs': ['0.75rem', { lineHeight: '1rem' }],        // 12px (was 10px, +2px)
+        xs: ['0.875rem', { lineHeight: '1.25rem' }],       // 14px (was 12px, +2px)
+        sm: ['1rem', { lineHeight: '1.5rem' }],            // 16px (was 14px, +2px)
+        base: ['1.125rem', { lineHeight: '1.75rem' }],     // 18px (was 16px, +2px)
+        lg: ['1.25rem', { lineHeight: '1.75rem' }],        // 20px (was 18px, +2px)
+        xl: ['1.375rem', { lineHeight: '1.875rem' }],      // 22px (was 20px, +2px)
+        '2xl': ['1.625rem', { lineHeight: '2.125rem' }],   // 26px (was 24px, +2px)
+        '3xl': ['2rem', { lineHeight: '2.375rem' }],       // 32px (was 30px, +2px)
+      },
       gridTemplateColumns: {
         20: "repeat(20, minmax(0, 1fr))",
       },

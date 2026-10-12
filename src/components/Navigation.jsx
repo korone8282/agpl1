@@ -9,7 +9,9 @@ import {
     Target,
     Container,
     Menu, 
-    PlusIcon
+    PlusIcon,
+    PackagePlus,
+    UtensilsCrossed
   } from "lucide-react";
 import { cn } from './Utils';
 
@@ -19,6 +21,8 @@ const menuItems = [
     { icon: Truck, label: "Dispatch", path:"Create-Data-Dispatch", section:"Dispatch"},
     { icon: Target, label: "Production Goal", path:"Production" },
     { icon: Container, label: "Exports", path:"Create-Exports"},
+    { icon: PackagePlus, label: "Goods Receipt (GRN)", path:"Goods-Receipt" },
+    { icon: UtensilsCrossed, label: "Kitchen Store Issue", path:"Material-Issue" },
   ];
 
 export const Navigation = ({ className }) => {

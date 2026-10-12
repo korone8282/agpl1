@@ -41,10 +41,15 @@ const recipeIngredientSchema = new mongoose.Schema({
 
 const recipeSchema = new mongoose.Schema(
     {
+        buyerName: {
+            type: String,
+            required: true,
+            trim: true,
+            default: 'General'
+        },
         productName: {
             type: String,
             required: true,
-            unique: true,
             trim: true
         },
         productRef: {
@@ -53,12 +58,15 @@ const recipeSchema = new mongoose.Schema(
         },
         nominalBatchYieldPouches: {
             type: Number,
-            required: true,
-            default: 250 // Standard pouches produced per 1 recipe batch
+            default: 250 // Standard pouches produced per 1 recipe batch (or derived from cooked weight / pack size)
         },
         batchCookedWeightKg: {
             type: Number,
-            default: 0
+            default: 0 // Batch cooked weight / Total yield in kg (supports decimals)
+        },
+        packSizes: {
+            type: [Number], // Available pack sizes in kg (e.g. [0.16, 0.2, 0.25])
+            default: []
         },
         ingredients: [recipeIngredientSchema],
         version: {
@@ -74,5 +82,7 @@ const recipeSchema = new mongoose.Schema(
         timestamps: true
     }
 );
+
+recipeSchema.index({ buyerName: 1, productName: 1 }, { unique: true });
 
 module.exports = mongoose.model('Recipe', recipeSchema);

@@ -6,17 +6,26 @@ import {
   Trash2,
   CheckCircle2,
   FileText,
-  ArrowLeft
+  ArrowLeft,
+  Search
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL } from '../../redux/Utils/constants';
 import Loader from '../../components/Loader';
 import { toast } from 'react-toastify';
 
+const format3Decimals = (val) => {
+  if (val === null || val === undefined || val === '') return '0';
+  const num = Number(val);
+  if (isNaN(num)) return '0';
+  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+};
+
 const GoodsReceipt = () => {
   const navigate = useNavigate();
   const [materials, setMaterials] = useState([]);
   const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -109,6 +118,18 @@ const GoodsReceipt = () => {
       setSubmitting(false);
     }
   };
+
+  const filteredEntries = ledgerEntries.filter((entry) => {
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase();
+    return (
+      (entry.grnNumber && entry.grnNumber.toLowerCase().includes(q)) ||
+      (entry.materialName && entry.materialName.toLowerCase().includes(q)) ||
+      (entry.lotNumber && entry.lotNumber.toLowerCase().includes(q)) ||
+      (entry.reason && entry.reason.toLowerCase().includes(q)) ||
+      (entry.unit && entry.unit.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
@@ -229,7 +250,7 @@ const GoodsReceipt = () => {
                     <div className="md:col-span-2">
                       <input
                         type="number"
-                        step="any"
+                        step="0.001"
                         required
                         placeholder="Quantity"
                         value={row.quantityReceived}
@@ -241,7 +262,7 @@ const GoodsReceipt = () => {
                     <div className="md:col-span-2">
                       <input
                         type="number"
-                        step="any"
+                        step="0.001"
                         required
                         placeholder="Rate (₹/unit)"
                         value={row.purchaseRate}
@@ -300,10 +321,39 @@ const GoodsReceipt = () => {
 
         {/* Recent GRN History Table */}
         <div>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-            Recent Inward Shipments (GRN Audit Trail)
-          </h2>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                Recent Inward Shipments (GRN Audit Trail)
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Audit trail of all recorded GRN receipts and live stock updates
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <div className="relative min-w-[220px] sm:min-w-[280px]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search GRN, material, lot, vendor..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-black/60 border border-white/15 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-400 transition-colors"
+                />
+              </div>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="text-xs text-gray-400 hover:text-white underline font-medium"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
 
           {loading ? (
             <div className="py-12 flex justify-center">
@@ -312,6 +362,17 @@ const GoodsReceipt = () => {
           ) : ledgerEntries.length === 0 ? (
             <div className="bg-secondary/10 border border-white/10 rounded-2xl p-8 text-center text-gray-400 text-sm">
               No recent GRN receipts logged yet.
+            </div>
+          ) : filteredEntries.length === 0 ? (
+            <div className="bg-secondary/10 border border-white/10 rounded-2xl p-8 text-center text-gray-400 text-sm">
+              No inward shipments found matching &quot;{searchTerm}&quot;.
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="block mx-auto mt-2 text-xs text-emerald-400 hover:underline font-semibold"
+              >
+                Clear Search Filter
+              </button>
             </div>
           ) : (
             <div className="bg-secondary/10 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md">
@@ -331,17 +392,17 @@ const GoodsReceipt = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {ledgerEntries.map((entry) => (
-                      <tr key={entry._id} className="hover:bg-white/5">
+                    {filteredEntries.map((entry) => (
+                      <tr key={entry._id} className="hover:bg-white/5 transition-colors">
                         <td className="py-3 px-4 text-gray-300">{new Date(entry.createdAt).toLocaleDateString()}</td>
                         <td className="py-3 px-4 font-mono font-bold text-primary">{entry.grnNumber || '—'}</td>
                         <td className="py-3 px-4 font-medium text-white">{entry.materialName}</td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
-                          +{entry.quantity} {entry.unit}
+                          +{format3Decimals(entry.quantity)} {entry.unit}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono text-white">₹{entry.rate.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right font-mono text-white">₹{format3Decimals(entry.rate)}</td>
                         <td className="py-3 px-4 text-right font-mono text-gray-300">
-                          ₹{entry.totalAmount.toLocaleString()}
+                          ₹{format3Decimals(entry.totalAmount)}
                         </td>
                         <td className="py-3 px-4 font-mono text-gray-400">{entry.lotNumber || '—'}</td>
                         <td className="py-3 px-4 text-gray-400">

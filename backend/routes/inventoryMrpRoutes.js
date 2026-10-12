@@ -18,12 +18,25 @@ const {
     getPriceTrends,
     createProductionOrder,
     getProductionOrders,
+    updateProductionOrder,
+    deleteProductionOrder,
     calculateMRP,
     getPerishableAlerts,
     createPurchaseOrder,
     getPurchaseOrders,
     createMaterialIssue,
-    getMaterialIssues
+    getMaterialIssues,
+    createKitchenVariance,
+    getKitchenVariances,
+    lookupFillingData,
+    createBuyerOrder,
+    getBuyerOrders,
+    updateBuyerOrder,
+    deleteBuyerOrder,
+    getMaterialOrders,
+    createMaterialOrderBatch,
+    deleteMaterialOrderBatch,
+    clearMaterialOrders
 } = require('../controllers/inventoryMrpController');
 
 // Multer memory storage for direct in-memory Excel buffer parsing
@@ -66,6 +79,27 @@ router.route('/production-orders')
     .get(getProductionOrders)
     .post(createProductionOrder);
 
+router.route('/production-orders/:id')
+    .put(updateProductionOrder)
+    .delete(deleteProductionOrder);
+
+// Complete Master Buyer Orders
+router.route('/buyer-orders')
+    .get(getBuyerOrders)
+    .post(createBuyerOrder);
+
+router.route('/buyer-orders/:id')
+    .put(updateBuyerOrder)
+    .delete(deleteBuyerOrder);
+
+// Material Order Batches (Incoming PO Batches)
+router.route('/material-orders')
+    .get(getMaterialOrders)
+    .post(createMaterialOrderBatch);
+
+router.delete('/material-orders/:id', deleteMaterialOrderBatch);
+router.post('/material-orders/clear', clearMaterialOrders);
+
 // MRP & Perishable Alerts
 router.get('/mrp/calculate', calculateMRP);
 router.get('/perishable-alerts', getPerishableAlerts);
@@ -79,5 +113,12 @@ router.route('/purchase-orders')
 router.route('/material-issues')
     .get(getMaterialIssues)
     .post(createMaterialIssue);
+
+// Kitchen Variance Tracker
+router.route('/kitchen-variance')
+    .get(getKitchenVariances)
+    .post(createKitchenVariance);
+
+router.get('/filling-lookup', lookupFillingData);
 
 module.exports = router;
