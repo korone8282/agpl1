@@ -20,6 +20,8 @@ const Exports = () => {
     packSize: "",
   });
   const [name, setName] = useState("C1");
+  const [type, setType] = useState("Export"); // "Export" | "Domestic"
+  const [priority, setPriority] = useState(1);
   const [arr, setArr] = useState([]);
 
   const { userinfo } = useSelector((state) => state.auth);
@@ -70,7 +72,12 @@ const Exports = () => {
     });
 
     try {
-      await apiConnector(`${EXPORT_URL}/${name}`, "POST", arr, {
+      await apiConnector(`${EXPORT_URL}/${name}`, "POST", {
+        name,
+        type,
+        priority: Number(priority) || 1,
+        list: arr,
+      }, {
         Authorization: `Bearer ${userinfo.token}`,
       });
 
@@ -89,7 +96,15 @@ const Exports = () => {
       toast("Please select both buyer and product");
       return;
     }
-    setArr((prev) => [...prev, { ...info }]);
+    const newRow = { ...info, id: Date.now() + Math.random() };
+    setArr((prev) => {
+      const next = [...prev, newRow];
+      return next.sort((a, b) => {
+        const bComp = (a.buyerName || "").localeCompare(b.buyerName || "");
+        if (bComp !== 0) return bComp;
+        return (a.productName || "").localeCompare(b.productName || "");
+      });
+    });
 
     setInfo({
       buyerName: "",
@@ -99,8 +114,8 @@ const Exports = () => {
     });
   };
 
-  const deleteHandler = (i) => {
-    setArr((prev) => prev.filter((_, index) => index !== i));
+  const deleteHandler = (target) => {
+    setArr((prev) => prev.filter((item, idx) => (item.id ? item.id !== target.id : idx !== target)));
   };
 
   return (
@@ -112,20 +127,59 @@ const Exports = () => {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
-                  Export Operations
+                  {type} Operations
                 </span>
                 <span className="text-zinc-500 text-xs font-mono">• Manifest Builder</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
                 <Box className="w-7 h-7 text-primary" />
-                Create Export Container
+                Create {type} Container
               </h1>
               <p className="text-zinc-400 text-xs sm:text-sm mt-1">
-                Configure container identifier and allocate SKU quotas for export order fulfillment.
+                Configure container identifier, shipment type, priority sequence, and SKU quotas.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* Type Switcher: Export vs Domestic */}
+              <div className="flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setType("Export")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    type === "Export"
+                      ? "bg-primary text-black font-bold shadow"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType("Domestic")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    type === "Domestic"
+                      ? "bg-primary text-black font-bold shadow"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Domestic
+                </button>
+              </div>
+
+              {/* Priority Input */}
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+                <span className="text-xs text-zinc-400 font-mono uppercase">Priority:</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={priority}
+                  onChange={(e) => setPriority(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none w-12 text-center"
+                  placeholder="1"
+                />
+              </div>
+
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
                 <span className="text-xs text-zinc-400 font-mono uppercase">Container ID:</span>
                 <input
@@ -167,7 +221,7 @@ const Exports = () => {
 
                   <TableBody>
                     {arr?.map((row, i) => (
-                      <TableRow key={i} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
+                      <TableRow key={row.id || i} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
                         <TableCell className="font-mono text-xs text-zinc-500 py-3">{i + 1}</TableCell>
                         <TableCell className="text-zinc-300 text-xs py-3">{row.buyerName}</TableCell>
                         <TableCell className="text-white font-semibold text-xs py-3">{row.productName}</TableCell>
@@ -179,7 +233,7 @@ const Exports = () => {
                         <TableCell className="py-3 text-center">
                           <Trash2
                             className="h-4 w-4 mx-auto text-rose-400 hover:text-rose-300 cursor-pointer transition-colors"
-                            onClick={() => deleteHandler(i)}
+                            onClick={() => deleteHandler(row)}
                           />
                         </TableCell>
                       </TableRow>
@@ -199,11 +253,14 @@ const Exports = () => {
                           onChange={(e) => inputHandler(e)}
                         >
                           <option value="">Select Buyer</option>
-                          {categories.map((val, index) => (
-                            <option value={`${val.name}`} key={index}>
-                              {val.name}
-                            </option>
-                          ))}
+                          {categories
+                            .slice()
+                            .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                            .map((val, index) => (
+                              <option value={`${val.name}`} key={index}>
+                                {val.name}
+                              </option>
+                            ))}
                         </select>
                       </TableCell>
 
@@ -217,6 +274,8 @@ const Exports = () => {
                           <option value="">Select Product</option>
                           {products
                             ?.filter((product) => product.buyer === info.buyerName)
+                            .slice()
+                            .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                             .map((val, index) => (
                               <option value={val.name} key={index}>
                                 {val.name}

@@ -244,16 +244,16 @@ exports.updatePouches = async(req,res) => {
                 const qty = parseInt(pouches, 10);
 
                 const days = [31,29,31,30,31,30,31,31,30,31,30,31];
-                    
-                const startDate = new Date(`2026-${month}-01`);
-                startDate.setHours(0, 0, 0, 0);
-                const endDate = new Date(`2026-${month}-${days[monthIndex]}`);
-                endDate.setHours(23, 59, 59, 999);
+                const year = new Date().getFullYear();
+                const startDate = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+                const endDate = new Date(year, monthIndex, days[monthIndex] || 31, 23, 59, 59, 999);
 
-                const existData = await Data.find({createdAt:{
-                    $gte:startDate,
-                    $lte:endDate
-                } });
+                const existData = await Data.find({
+                    createdAt: {
+                        $gte: startDate,
+                        $lte: endDate
+                    }
+                });
 
                 if(!existProduct){
                   return res.status(500).json({

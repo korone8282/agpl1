@@ -1,16 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import ProfileMenu from './ProfileMenu';
-import { Settings, Home, SquareSigma } from "lucide-react";
+import { Settings, Home, SquareSigma, Bot } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate, Link } from 'react-router-dom';
 import { Calculator } from './Calculator';
+import { AiAssistant } from './AiAssistant';
 import { BASE_URL } from '../redux/Utils/constants';
 import { apiConnector } from '../redux/Utils/apiConnector';
 
 const Header = () => {
 
   const [showCalculator, setShowCalculator] = useState(0);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [profileOpen, setProfileOpen] = useState(0);
   const [backendActive, setBackendActive] = useState(null);
   const [isPinging, setIsPinging] = useState(false);
@@ -131,6 +133,26 @@ const Header = () => {
                     </div>
 
                     <button
+                      title="AI Factory Copilot"
+                      className={`p-2.5 rounded-xl border transition-all relative group ${
+                        showAiAssistant
+                          ? "bg-primary text-black border-primary shadow-lg shadow-primary/20"
+                          : "bg-white/5 border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 hover:border-primary/40"
+                      }`}
+                      onClick={() => {
+                        setShowAiAssistant(!showAiAssistant);
+                        setShowCalculator(0);
+                        setProfileOpen(0);
+                      }}
+                    >
+                      <Bot className={`w-5 h-5 ${showAiAssistant ? "text-black" : "text-primary group-hover:scale-110 transition-transform"}`} />
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary"></span>
+                      </span>
+                    </button>
+
+                    <button
                       title="Calculator"
                       className={`p-2.5 rounded-xl border transition-all ${
                         showCalculator
@@ -139,6 +161,7 @@ const Header = () => {
                       }`}
                       onClick={() => {
                         setShowCalculator(!showCalculator);
+                        setShowAiAssistant(false);
                         setProfileOpen(0);
                       }}
                     >
@@ -191,6 +214,7 @@ const Header = () => {
           </div>
 
           {showCalculator ? <Calculator /> : null}
+          <AiAssistant isOpen={showAiAssistant} onClose={() => setShowAiAssistant(false)} />
         </header>
       );
     };

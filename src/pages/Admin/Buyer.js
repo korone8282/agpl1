@@ -158,7 +158,10 @@ const Buyer = () => {
                   <Loader />
                 ) : (
                   <div className="flex flex-wrap gap-2.5 pt-2">
-                    {categories?.map((category) => {
+                    {categories
+                      ?.slice()
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                      .map((category) => {
                       const isSelected = currentCategory?._id === category._id && openBox;
                       return (
                         <button

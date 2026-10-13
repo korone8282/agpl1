@@ -72,7 +72,10 @@ const Dispatched = () => {
           try {
     
         const res = await apiConnector(`${CATEGORIES_URL}/categories`,"GET");
-        setcategories(res.data.data);
+        const sortedCats = [...(res.data.data || [])].sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+        );
+        setcategories(sortedCats);
     
           } catch (e) {
             console.log(e)
@@ -83,7 +86,10 @@ const Dispatched = () => {
             try {
       
           const res = await apiConnector(`${PRODUCT_URL}/products`,"GET");
-          setproducts(res.data.data);
+          const sortedProds = [...(res.data.data || [])].sort((a, b) =>
+            (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+          );
+          setproducts(sortedProds);
       
             } catch (error) {
               console.log(error);

@@ -28,6 +28,7 @@ const Pouch = () => {
   const [month, setmonth] = useState(currentMonth);
   const [expandedId, setExpandedId] = useState(null);
   const [actionOpenId, setActionOpenId] = useState(null);
+  const [sortDesc, setSortDesc] = useState(false);
   const [categories, setcategories] = useState([]);
   const [info, setInfo] = useState({
       buyer:"",
@@ -230,24 +231,37 @@ const months = [{month:"January"},
       row.hasStockIn = true;
     });
 
-    const ascending = Object.values(byDate).sort((a, b) =>
-      a.dateKey.localeCompare(b.dateKey)
-    );
-
     const datedStock = stockEntries.reduce(
       (acc, entry) => acc + (Number(entry.quantity) || 0),
       0
     );
     const undatedStock = Math.max(0, getStockIn(element) - datedStock);
 
-    let running = getPrevBalance(element) + undatedStock;
+    if (Object.keys(byDate).length === 0 && (getStockIn(element) > 0 || getPrevBalance(element) > 0)) {
+      const year = new Date().getFullYear();
+      const monthStr = String(month).padStart(2, "0");
+      ensure(`${year}-${monthStr}-01`);
+    }
+
+    const ascending = Object.values(byDate).sort((a, b) =>
+      a.dateKey.localeCompare(b.dateKey)
+    );
+
+    // Any monthly Pouches (IN) entered without a specific day belongs to the opening entry of the month
+    if (undatedStock > 0 && ascending.length > 0) {
+      ascending[0].stockIn += undatedStock;
+      ascending[0].hasStockIn = true;
+    }
+
+    // Total balance of day X = Balance of day X - 1 (Day 1 total balance = previous month's ending balance)
+    let running = getPrevBalance(element);
     ascending.forEach((day) => {
-      running += day.stockIn;
-      running -= day.filled + day.waste;
+      day.totalBalance = running;
+      running = day.totalBalance + day.stockIn - day.filled - day.waste;
       day.balance = running;
     });
 
-    return ascending.slice().reverse();
+    return sortDesc ? ascending.slice().reverse() : ascending;
   };
 
   return (
@@ -282,11 +296,14 @@ const months = [{month:"January"},
                   value={info.buyer}
                 >
                   <option value="">Select Buyer</option>
-                  {categories.map((val, index) => (
-                    <option key={index} value={val.name}>
-                      {val.name}
-                    </option>
-                  ))}
+                  {categories
+                    .slice()
+                    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                    .map((val, index) => (
+                      <option key={index} value={val.name}>
+                        {val.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -343,22 +360,24 @@ const months = [{month:"January"},
                       <TableHead className="bg-[#141414] text-primary text-xs font-mono py-3.5">Pouches (IN)</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouch Filled</TableHead>
                       <TableHead className="bg-[#141414] text-amber-400 text-xs font-mono py-3.5">Waste Pouches</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Month Net</TableHead>
                       <TableHead className="bg-[#141414] text-emerald-400 text-xs font-mono py-3.5">Current Balance</TableHead>
                       <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
-                    {products.filter((product) => product.buyer === info.buyer).map((element, i) => {
+                    {products
+                      .filter((product) => product.buyer === info.buyer)
+                      .slice()
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                      .map((element, i) => {
                       const isExpanded = expandedId === element._id;
                       const dateEntries = isExpanded ? getDateEntries(element) : [];
                       const prevBalance = getPrevBalance(element);
                       const stockIn = getStockIn(element);
                       const filled = getFilled(element.name);
                       const waste = getWaste(element.name);
-                      const monthBalance = stockIn - filled - waste;
-                      const currentBalance = prevBalance + monthBalance;
+                      const currentBalance = prevBalance + stockIn - filled - waste;
 
                       return (
                         <React.Fragment key={element._id || i}>
@@ -379,7 +398,6 @@ const months = [{month:"January"},
                             <TableCell className="font-mono text-xs text-primary font-bold py-3.5">{stockIn}</TableCell>
                             <TableCell className="font-mono text-xs text-zinc-300 py-3.5">{filled}</TableCell>
                             <TableCell className="font-mono text-xs text-amber-400 py-3.5">{waste}</TableCell>
-                            <TableCell className="font-mono text-xs text-zinc-400 py-3.5">{monthBalance}</TableCell>
                             <TableCell className="font-mono text-xs text-emerald-400 font-bold py-3.5">{currentBalance}</TableCell>
                             <TableCell className="py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                               <Popover
@@ -394,18 +412,18 @@ const months = [{month:"January"},
                                     Manage
                                   </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-36 p-1.5 bg-[#0d0d0d] border border-white/15 rounded-xl shadow-2xl text-white" align="end">
-                                  <div className="flex flex-col gap-1">
+                                <PopoverContent className="w-44 p-2 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white" align="end">
+                                  <div className="flex flex-col gap-1.5 p-1">
                                     <Button
                                       variant="ghost"
-                                      className="justify-start text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                                      className="w-full text-center justify-center text-xs py-2.5 px-3 hover:bg-white/10 hover:text-primary rounded-xl font-medium transition-all"
                                       onClick={() => openModal("update", element)}
                                     >
                                       Update Stock (IN)
                                     </Button>
                                     <Button
                                       variant="ghost"
-                                      className="justify-start text-xs hover:bg-white/10 hover:text-primary rounded-lg"
+                                      className="w-full text-center justify-center text-xs py-2.5 px-3 hover:bg-white/10 hover:text-primary rounded-xl font-medium transition-all"
                                       onClick={() => openModal("add", element)}
                                     >
                                       Add New Pouches
@@ -418,11 +436,29 @@ const months = [{month:"January"},
 
                           {isExpanded && (
                             <TableRow className="bg-black/70 hover:bg-black/70 border-b border-white/10">
-                              <TableCell colSpan={9} className="p-0">
+                              <TableCell colSpan={8} className="p-0">
                                 <div className="px-6 py-4 bg-[#0a0a0a] border-l-2 border-primary">
-                                  <div className="text-xs font-mono text-zinc-400 mb-3 flex items-center justify-between">
-                                    <span>Date Breakdown (Newest First)</span>
-                                    <span>Monthly Opening Stock: <strong className="text-white">{prevBalance + stockIn}</strong></span>
+                                  <div className="text-xs font-mono text-zinc-400 mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-white">Date Breakdown</span>
+                                      <span className="text-zinc-600">•</span>
+                                      <span className="text-[11px] text-zinc-400 font-normal">
+                                        Total Balance (Day X) = Balance (Day X-1)
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span>Monthly Opening Stock (Prev + IN): <strong className="text-white">{prevBalance + stockIn}</strong></span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSortDesc(!sortDesc);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg border border-white/10 hover:border-primary/50 text-[11px] text-zinc-300 hover:text-white bg-white/5 transition-all"
+                                      >
+                                        {sortDesc ? "Newest First ▼" : "Day 1 → 31 ▲"}
+                                      </button>
+                                    </div>
                                   </div>
                                   {dateEntries.length === 0 ? (
                                     <div className="text-xs text-zinc-500 py-2">
@@ -434,10 +470,11 @@ const months = [{month:"January"},
                                         <TableHeader>
                                           <TableRow className="bg-white/5 border-b border-white/10">
                                             <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Date</TableHead>
+                                            <TableHead className="text-zinc-300 font-mono text-[13px] py-2">Total Balance</TableHead>
                                             <TableHead className="text-primary font-mono text-[13px] py-2">Pouches (IN)</TableHead>
                                             <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Pouch Filled</TableHead>
                                             <TableHead className="text-amber-400 font-mono text-[13px] py-2">Waste Pouches</TableHead>
-                                            <TableHead className="text-zinc-400 font-mono text-[13px] py-2">Balance</TableHead>
+                                            <TableHead className="text-emerald-400 font-mono text-[13px] py-2">Balance</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -447,10 +484,11 @@ const months = [{month:"January"},
                                               className={day.hasStockIn ? "bg-primary/10 hover:bg-primary/15" : "border-b border-white/5 hover:bg-white/[0.02]"}
                                             >
                                               <TableCell className="font-mono text-xs py-2">{formatDateLabel(day.dateKey)}</TableCell>
-                                              <TableCell className="font-mono text-xs py-2 font-semibold">{day.stockIn || "—"}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 text-zinc-300 font-semibold">{day.totalBalance}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 font-semibold text-primary">{day.stockIn || "—"}</TableCell>
                                               <TableCell className="font-mono text-xs py-2">{day.filled || "—"}</TableCell>
                                               <TableCell className="font-mono text-xs py-2 text-amber-400">{day.waste || "—"}</TableCell>
-                                              <TableCell className="font-mono text-xs py-2 text-zinc-300">{day.balance}</TableCell>
+                                              <TableCell className="font-mono text-xs py-2 text-emerald-400 font-bold">{day.balance}</TableCell>
                                             </TableRow>
                                           ))}
                                         </TableBody>
@@ -473,20 +511,31 @@ const months = [{month:"January"},
           {/* Modal */}
           {modalMode && (
             <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-              <div className="bg-[#0e0e0e] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl relative space-y-5">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <h3 className="text-base font-bold text-white">
-                    {modalMode === "add" ? "Add Stock Pouches" : "Update Opening Stock (IN)"}
-                  </h3>
-                  <button onClick={() => setModalMode(null)} className="text-zinc-400 hover:text-white text-xs">
+              <div className="bg-[#0e0e0e] border border-white/10 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative space-y-6">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="text-start">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse"></span>
+                      <h3 className="text-lg font-bold text-white tracking-tight">
+                        {modalMode === "add" ? "Add Stock Pouches" : "Update Opening Stock (IN)"}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1 font-mono">
+                      {info.product} • {months[month - 1]?.month}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setModalMode(null)}
+                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white flex items-center justify-center transition-all text-sm"
+                  >
                     ✕
                   </button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4 text-start">
                   <div>
-                    <label htmlFor="pouchCount" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-                      Pouch Count
+                    <label htmlFor="pouchCount" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                      Pouch Count (Units)
                     </label>
                     <Input
                       type="number"
@@ -495,13 +544,16 @@ const months = [{month:"January"},
                       placeholder="e.g. 5000"
                       value={info.pouches}
                       onChange={(e) => inputHandler(e)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-primary text-sm font-mono"
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-primary text-sm font-mono transition-all"
                     />
+                    <p className="text-[11px] text-zinc-500 mt-1.5 font-mono">
+                      {modalMode === "add" ? "Will be logged with supply date in shift breakdown." : "Sets the total monthly opening pouches."}
+                    </p>
                   </div>
 
                   {modalMode === "add" && (
                     <div>
-                      <label htmlFor="pouchDate" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      <label htmlFor="pouchDate" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
                         Supply Date
                       </label>
                       <Input
@@ -510,16 +562,16 @@ const months = [{month:"January"},
                         name="date"
                         value={info.date}
                         onChange={(e) => inputHandler(e)}
-                        className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/10 text-white focus:outline-none focus:border-primary text-sm font-mono"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/10 text-white focus:outline-none focus:border-primary text-sm font-mono transition-all"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
+                    className="px-5 py-2.5 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
                     onClick={() => setModalMode(null)}
                   >
                     Cancel
@@ -527,7 +579,7 @@ const months = [{month:"January"},
                   <button
                     type="submit"
                     onClick={handleSubmit}
-                    className="px-5 py-2 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
+                    className="px-6 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
                   >
                     {modalMode === "add" ? "Add Stock" : "Save Changes"}
                   </button>

@@ -1,24 +1,37 @@
 const mongoose = require('mongoose');
 
 const containerSchema = new mongoose.Schema({
-       name:{
+    name: {
+        type: String,
+        required: true,
+    },
+    type: {
+        type: String,
+        enum: ['Export', 'Domestic'],
+        default: 'Export',
+    },
+    priority: {
+        type: Number,
+        default: 1,
+    },
+    list: [{
+        buyerName: {
             type: String,
-            required : true
         },
-        list:[{
-        buyerName:{
+        productName: {
             type: String,
         },
-        productName:{
-            type: String,
-        },
-        pouch:{
+        pouch: {
             type: Number,
         },
-        packSize:{
+        packSize: {
             type: Number,
         },
     }],
-})
+    createdAt: {
+        type: Date,
+        default: Date.now,
+    },
+});
 
 module.exports =  mongoose.model('Container',containerSchema)

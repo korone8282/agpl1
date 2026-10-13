@@ -108,7 +108,10 @@ const BuyerProducts = () => {
                   value={info.buyer}
                 >
                   <option value="" className="bg-zinc-900 text-zinc-400">Select Buyer</option>
-                  {categories.map((val, index) => (
+                  {categories
+                    .slice()
+                    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                    .map((val, index) => (
                     <option className="bg-zinc-900 text-white" value={val.name} key={index}>
                       {val.name}
                     </option>
@@ -176,6 +179,8 @@ const BuyerProducts = () => {
                       <TableBody>
                         {products
                           .filter((product) => product.buyer === info.buyer)
+                          .slice()
+                          .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                           .map((element, index) => (
                             <TableRow key={index} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
                               <TableCell className="font-mono text-xs text-zinc-500 py-3">{index + 1}</TableCell>

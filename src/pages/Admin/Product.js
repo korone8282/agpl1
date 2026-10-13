@@ -146,7 +146,10 @@ const Product = () => {
                     value={buyer}
                   >
                     <option value="">Select Buyer</option>
-                    {categories.map((val, index) => (
+                    {categories
+                      .slice()
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                      .map((val, index) => (
                       <option value={val.name} key={index}>
                         {val.name}
                       </option>
@@ -201,6 +204,8 @@ const Product = () => {
                     {buyer ? (
                       products
                         ?.filter((item) => item.buyer === buyer)
+                        .slice()
+                        .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                         .map((product) => {
                           const isSelected = currentProduct?._id === product._id && openBox;
                           return (

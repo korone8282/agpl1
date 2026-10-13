@@ -190,7 +190,10 @@ async function getData(){
                       >
                         All Buyers
                       </div>
-                      {categories.map((val, ind) => (
+                      {categories
+                        .slice()
+                        .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                        .map((val, ind) => (
                         <div
                           className="p-2 hover:bg-primary hover:text-black rounded-lg cursor-pointer text-zinc-300 transition-colors"
                           key={ind}
@@ -226,7 +229,14 @@ async function getData(){
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {products.map((val, i) => {
+                        {products
+                          .slice()
+                          .sort((a, b) => {
+                            const bC = (a.buyer || "").localeCompare(b.buyer || "");
+                            if (bC !== 0) return bC;
+                            return (a.name || "").localeCompare(b.name || "");
+                          })
+                          .map((val, i) => {
                           const isSelected = info.product?.name === val.name && info.product?.buyer === val.buyer;
                           return (
                             <tr

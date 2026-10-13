@@ -97,13 +97,25 @@ const Container = () => {
                 <span className="px-2.5 py-0.5 rounded-full text-[13px] font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20">
                   Manifest Detail
                 </span>
+                {arr?.priority && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-primary/10 text-primary border border-primary/20">
+                    Priority #{arr.priority}
+                  </span>
+                )}
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold uppercase ${
+                  (arr?.type || 'Export').toLowerCase() === 'domestic'
+                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                    : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                }`}>
+                  {arr?.type || 'Export'}
+                </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
                 <Box className="w-7 h-7 text-primary" />
                 Container: <span className="text-primary">{arr?.name || "Loading..."}</span>
               </h1>
               <p className="text-zinc-400 text-xs sm:text-sm mt-1">
-                Per-SKU fulfillment reconciliation against planned container quota.
+                Per-SKU fulfillment reconciliation against planned container quota ({arr?.list?.length || 0} SKUs sorted alphabetically).
               </p>
             </div>
 
@@ -149,7 +161,14 @@ const Container = () => {
 
                       {arr && arr.list && (
                         <TableBody>
-                          {arr.list.map((val, ind) => {
+                          {arr.list
+                            .slice()
+                            .sort((a, b) => {
+                              const bComp = (a.buyerName || "").localeCompare(b.buyerName || "");
+                              if (bComp !== 0) return bComp;
+                              return (a.productName || "").localeCompare(b.productName || "");
+                            })
+                            .map((val, ind) => {
                             const filledCount = array
                               .filter((product) => product.sectionMain === "Filling")
                               .reduce(

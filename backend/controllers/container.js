@@ -4,35 +4,48 @@ const Data = require('../models/dataModel');
 
 exports.createData = async(req,res) => {
     try {
- 
-        const arr = req.body;
-        const {name} = req.params;
+        let list = [];
+        let type = 'Export';
+        let priority = 1;
 
-         if(!arr.length){
-           return res.status(400).json({
+        if (Array.isArray(req.body)) {
+            list = req.body;
+        } else if (req.body && typeof req.body === 'object') {
+            list = req.body.list || req.body.arr || [];
+            if (req.body.type) type = req.body.type;
+            if (req.body.priority !== undefined && req.body.priority !== null && req.body.priority !== '') {
+                priority = Number(req.body.priority) || 1;
+            }
+        }
+
+        const {name} = req.params;
+        const containerName = (req.body && req.body.name) ? req.body.name : name;
+
+        if(!list.length){
+            return res.status(400).json({
                 message:"Empty Entry Submitted",
-            })
-         }
+            });
+        }
     
         const newData = await Container.create({
-            name,
-            list: arr,
-        })
+            name: containerName,
+            type: type === 'Domestic' ? 'Domestic' : 'Export',
+            priority: Number(priority) || 1,
+            list: list,
+        });
     
         res.status(200).json({
             success:true,
             data:newData,
             message:"Data created"
         });
-    
-    
     } catch (error) {
         console.log(error);
         res.status(400).json({
-            message:error
-        })
+            message: error?.message || error
+        });
     }
-    }
+}
 
 exports.readData = async(req,res) => {
     try {
@@ -145,4 +158,30 @@ exports.deleteExport = async(req,res) => {
                 message:error
             })
         }
+}
+
+exports.updateContainer = async(req,res) => {
+    try {
+        const { exportId } = req.params;
+        const { priority, type, name } = req.body;
+        const updateFields = {};
+        if (priority !== undefined && priority !== null && priority !== '') {
+            updateFields.priority = Number(priority) || 1;
         }
+        if (type) {
+            updateFields.type = type === 'Domestic' ? 'Domestic' : 'Export';
+        }
+        if (name) {
+            updateFields.name = name;
+        }
+
+        const updated = await Container.findByIdAndUpdate(exportId, updateFields, { new: true });
+        if (!updated) {
+            return res.status(404).json({ message: "Container not found" });
+        }
+        res.status(200).json({ success: true, data: updated, message: "Container updated" });
+    } catch (error) {
+        console.log(error);
+        res.status(400).json({ message: error?.message || error });
+    }
+};
