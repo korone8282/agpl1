@@ -116,22 +116,141 @@ function parseTimeframe(text) {
   return { label: 'Recent', start: defaultStart, end: now };
 }
 
+// Number and quantity formatting engine
+function formatNum(value, maxDecimals = 3) {
+  const num = Number(value);
+  if (isNaN(num)) return '0';
+  if (Number.isInteger(num)) return num.toLocaleString();
+  const fixed = num.toFixed(maxDecimals);
+  const clean = parseFloat(fixed);
+  return clean.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals
+  });
+}
+
+function formatPouch(value) {
+  const num = Math.round(Number(value) || 0);
+  return num.toLocaleString();
+}
+
+// Extract active user preferences and formatting rules from memory
+function extractLearnedPreferences(activeRules = []) {
+  let decimalPlaces = 3; // Default 3 decimals for batches/weights
+  let varianceThreshold = 8.0;
+  let maxPouchPerShift = 25000;
+  let maxYieldKgPerBatch = 800;
+  const customPackSizes = {};
+
+  activeRules.forEach(r => {
+    if (r.metadata?.paramType === 'DECIMAL_PLACES' || r.topic === 'DECIMAL_PRECISION') {
+      const match = (r.rule || '').match(/(\d+)\s*decimal/i);
+      if (match) decimalPlaces = parseInt(match[1], 10);
+    }
+
+    const text = (r.rule || '').toLowerCase();
+    
+    // Decimal precision matching: e.g. "keep it till 3-4 digits", "3-4 decimals", "max 2 decimal places"
+    const decMatch = text.match(/(?:keep|show|round|format|limit|use|set|restrict)[^\d]*(\d+)\s*(?:-|to)?\s*(\d+)?\s*(?:decimal|decimals|digits|places)/i) ||
+                     text.match(/(\d+)\s*(?:-|to)?\s*(\d+)?\s*(?:decimal|decimals|digits|places)/i);
+    if (decMatch) {
+      const digits = parseInt(decMatch[2] || decMatch[1], 10);
+      if (!isNaN(digits)) {
+        decimalPlaces = Math.max(0, Math.min(6, digits));
+      }
+    }
+
+    const varMatch = text.match(/variance[^\d]*(\d+(?:\.\d+)?)/i);
+    if (varMatch) varianceThreshold = parseFloat(varMatch[1]);
+
+    const pouchMatch = text.match(/pouch (?:threshold|limit|per shift)[^\d]*(\d+)/i);
+    if (pouchMatch) maxPouchPerShift = parseInt(pouchMatch[1], 10);
+  });
+
+  return {
+    decimalPlaces,
+    varianceThreshold,
+    maxPouchPerShift,
+    maxYieldKgPerBatch,
+    customPackSizes
+  };
+}
+
 // Detect if query is a user instruction, correction, or teaching prompt
 function detectCorrectionOrRule(text) {
   const lower = text.toLowerCase().trim();
+
+  // 1. Decimal precision instructions (e.g. "keep it till 3-4 digits", "round to 3 decimals")
+  if (
+    lower.includes('decimal') ||
+    lower.includes('decimals') ||
+    lower.includes('digit') ||
+    lower.includes('digits') ||
+    lower.includes('round to') ||
+    lower.includes('places')
+  ) {
+    const match = lower.match(/(?:keep|show|round|format|limit|restrict|use|set|till|to)\s*(?:all\s*)?(?:the\s*)?(?:it\s*)?(?:decimal|decimals|digits|numbers|places)?\s*(?:places|digits)?\s*(?:till|to|at|up to|within|around)?\s*(\d+)(?:\s*-\s*(\d+))?\s*(?:decimal|decimals|digits|places)?/i) ||
+                  lower.match(/(\d+)\s*(?:-|to)?\s*(\d+)?\s*(?:decimal|decimals|digits|places)/i);
+    if (match) {
+      const digits = parseInt(match[2] || match[1], 10);
+      const validDigits = Math.max(0, Math.min(6, digits));
+      return {
+        isCorrection: true,
+        topic: 'DECIMAL_PRECISION',
+        rule: `Format all numerical calculations and batch quantities to max ${validDigits} decimal places`,
+        targetValue: validDigits,
+        paramType: 'DECIMAL_PLACES'
+      };
+    }
+  }
+
+  // 2. Variance tolerance instructions
+  if (lower.includes('variance') && (lower.includes('threshold') || lower.includes('tolerance') || lower.includes('limit') || lower.includes('accept') || lower.includes('allow') || lower.includes('%'))) {
+    const varMatch = lower.match(/(\d+(?:\.\d+)?)\s*%/i) || lower.match(/(\d+(?:\.\d+)?)/i);
+    if (varMatch) {
+      const val = parseFloat(varMatch[1]);
+      return {
+        isCorrection: true,
+        topic: 'VARIANCE_TOLERANCE',
+        rule: `Accept kitchen cooking variance up to ±${val}%`,
+        targetValue: val,
+        paramType: 'VARIANCE_PERCENT'
+      };
+    }
+  }
+
+  // 3. Pack size rule
+  const packMatch = lower.match(/pack\s*size\s*(?:for|of)\s*([a-z0-9\s]+?)\s*(?:is|should be|must be|=)\s*(\d+(?:\.\d+)?)/i);
+  if (packMatch) {
+    const prodName = packMatch[1].trim();
+    const size = parseFloat(packMatch[2]);
+    return {
+      isCorrection: true,
+      topic: prodName,
+      rule: `Pack size for ${prodName} is ${size} kg`,
+      targetValue: size,
+      paramType: 'PACK_SIZE'
+    };
+  }
+
+  // 4. General corrections & explicit teaching
   const correctionPrefixes = [
     'no,', 'no ', 'actually,', 'actually ', 'that is wrong', "that's wrong",
     'wrong answer', 'you are wrong', 'not correct', 'incorrect', 'mistake',
     'remember that', 'remember:', 'note that', 'note:', 'from now on',
     'always calculate', 'always remember', 'learn that', 'learn this:',
-    'the correct answer', 'correct it to', 'it should be', 'it must be'
+    'the correct answer', 'correct it to', 'it should be', 'it must be',
+    'i want you to', 'you should', 'please make sure', 'keep in mind'
   ];
 
   for (const prefix of correctionPrefixes) {
     if (lower.startsWith(prefix) || lower.includes(prefix)) {
-      // Extract the rule payload
-      let rule = text.trim();
-      return { isCorrection: true, rule, prefix };
+      return {
+        isCorrection: true,
+        topic: 'OPERATIONS_RULE',
+        rule: text.trim(),
+        prefix
+      };
     }
   }
 
@@ -745,13 +864,22 @@ exports.chatWithAi = async (req, res) => {
       // Find what entity or topic this refers to from current query or previous history
       const allProds = await Product.find({}, 'name buyer');
       const matchedInCorrection = findBestProductMatch(q, allProds);
-      const topic = matchedInCorrection ? matchedInCorrection.name : 'OPERATIONS_RULE';
+      const topic = correctionCheck.topic || (matchedInCorrection ? matchedInCorrection.name : 'OPERATIONS_RULE');
+
+      // Archive previous conflicting rule for system-wide parameters (like decimal precision or variance tolerance)
+      if (['DECIMAL_PRECISION', 'VARIANCE_TOLERANCE'].includes(topic)) {
+        await AiMemory.updateMany({ topic }, { active: false });
+      }
 
       // Save into memory
       justLearned = await AiMemory.create({
         type: 'CORRECTION',
         topic,
-        rule: q,
+        rule: correctionCheck.rule || q,
+        metadata: {
+          paramType: correctionCheck.paramType,
+          targetValue: correctionCheck.targetValue
+        },
         triggerKeywords: qLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w)),
         originalQuery: history && history.length ? history[history.length - 1].content : '',
         correctedBy: 'User',
@@ -759,8 +887,10 @@ exports.chatWithAi = async (req, res) => {
       });
     }
 
-    // Retrieve active learned rules
+    // Retrieve active learned rules AFTER saving the new rule
     const activeRules = await AiMemory.find({ active: true });
+    const prefs = extractLearnedPreferences(activeRules);
+
     // Update usage count for relevant rules
     if (activeRules.length > 0) {
       const matchedRules = activeRules.filter(r =>
@@ -850,8 +980,8 @@ exports.chatWithAi = async (req, res) => {
         answer += `| Product Name | Batches | Target Pouches | Available in Stock | Pouch Shortage | Status |\n`;
         answer += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
         itemsEvaluation.forEach(it => {
-          const pouchBadge = it.pouchSufficient ? '🟢 Sufficient' : `🔴 Deficit (-${it.pouchShortage.toLocaleString()})`;
-          answer += `| **${it.productName}** | ${it.batches} | ${it.targetPouches.toLocaleString()} | ${it.pouchAvailable.toLocaleString()} | ${it.pouchShortage ? `-${it.pouchShortage.toLocaleString()}` : '0'} | ${pouchBadge} |\n`;
+          const pouchBadge = it.pouchSufficient ? '🟢 Sufficient' : `🔴 Deficit (-${formatPouch(it.pouchShortage)})`;
+          answer += `| **${it.productName}** | ${formatNum(it.batches, prefs.decimalPlaces)} | ${formatPouch(it.targetPouches)} | ${formatPouch(it.pouchAvailable)} | ${it.pouchShortage ? `-${formatPouch(it.pouchShortage)}` : '0'} | ${pouchBadge} |\n`;
         });
 
         // Raw Material BOM Requirements
@@ -862,8 +992,8 @@ exports.chatWithAi = async (req, res) => {
           answer += `| Material Name | Gross Required | Current Stock | Net Shortage | Unit | Lead Time | Preferred Supplier | Status |\n`;
           answer += `| :--- | :---: | :---: | :---: | :---: | :---: | :--- | :---: |\n`;
           aggregateMaterials.forEach(m => {
-            const rmBadge = m.isSufficient ? '🟢 In Stock' : `🚨 Shortage (-${m.shortage.toFixed(2)})`;
-            answer += `| **${m.materialName}** | ${m.grossNeeded.toFixed(2)} | ${m.currentStock.toFixed(2)} | ${m.shortage > 0 ? `-${m.shortage.toFixed(2)}` : '0.00'} | ${m.unit} | ${m.leadTimeDays}d | ${m.preferredSupplier || '—'} | ${rmBadge} |\n`;
+            const rmBadge = m.isSufficient ? '🟢 In Stock' : `🚨 Shortage (-${formatNum(m.shortage, prefs.decimalPlaces)})`;
+            answer += `| **${m.materialName}** | ${formatNum(m.grossNeeded, prefs.decimalPlaces)} | ${formatNum(m.currentStock, prefs.decimalPlaces)} | ${m.shortage > 0 ? `-${formatNum(m.shortage, prefs.decimalPlaces)}` : '0.00'} | ${m.unit} | ${m.leadTimeDays}d | ${m.preferredSupplier || '—'} | ${rmBadge} |\n`;
           });
         }
 
@@ -871,7 +1001,7 @@ exports.chatWithAi = async (req, res) => {
         answer += `\n---\n`;
         if (!hasShortage && aggregateMaterials.length > 0) {
           answer += `> 🟢 **FEASIBILITY VERDICT: READY FOR PRODUCTION**\n`;
-          answer += `> All ${totalPouchesNeeded.toLocaleString()} packaging pouches and ${aggregateMaterials.length} raw material BOM ingredients are available in inventory.\n`;
+          answer += `> All ${formatPouch(totalPouchesNeeded)} packaging pouches and ${aggregateMaterials.length} raw material BOM ingredients are available in inventory.\n`;
           answer += `> Ready to issue to kitchen: **[Create Kitchen Store Issue](/material-issue)**.`;
         } else {
           const reasons = [];
@@ -925,7 +1055,7 @@ exports.chatWithAi = async (req, res) => {
         answer += `| Product Name | Pack Size | Target Pouches | Batches Req | Available Stock | Pouch Shortage |\n`;
         answer += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
         itemsEvaluation.forEach(it => {
-          answer += `| **${it.productName}** | ${it.packSize} kg | ${it.targetPouches.toLocaleString()} | **${it.batchesNeeded}** | ${it.pouchAvailable.toLocaleString()} | ${it.pouchShortage > 0 ? `-${it.pouchShortage.toLocaleString()}` : '0'} |\n`;
+          answer += `| **${it.productName}** | ${it.packSize} kg | ${formatPouch(it.targetPouches)} | **${formatNum(it.batchesNeeded, prefs.decimalPlaces)}** | ${formatPouch(it.pouchAvailable)} | ${it.pouchShortage > 0 ? `-${formatPouch(it.pouchShortage)}` : '0'} |\n`;
         });
 
         // Consolidated Raw Materials BOM
@@ -936,8 +1066,8 @@ exports.chatWithAi = async (req, res) => {
           answer += `| Material Name | Aggregated Gross | Current Stock | Net Shortage | Unit | Lead Time | Supplier | Status |\n`;
           answer += `| :--- | :---: | :---: | :---: | :---: | :---: | :--- | :---: |\n`;
           aggregateMaterials.forEach(m => {
-            const rmBadge = m.isSufficient ? '🟢 Ready' : `🚨 Shortage (-${m.shortage.toFixed(2)})`;
-            answer += `| **${m.materialName}** | ${m.grossNeeded.toFixed(2)} | ${m.currentStock.toFixed(2)} | ${m.shortage > 0 ? `-${m.shortage.toFixed(2)}` : '0.00'} | ${m.unit} | ${m.leadTimeDays}d | ${m.preferredSupplier || '—'} | ${rmBadge} |\n`;
+            const rmBadge = m.isSufficient ? '🟢 Ready' : `🚨 Shortage (-${formatNum(m.shortage, prefs.decimalPlaces)})`;
+            answer += `| **${m.materialName}** | ${formatNum(m.grossNeeded, prefs.decimalPlaces)} | ${formatNum(m.currentStock, prefs.decimalPlaces)} | ${m.shortage > 0 ? `-${formatNum(m.shortage, prefs.decimalPlaces)}` : '0.00'} | ${m.unit} | ${m.leadTimeDays}d | ${m.preferredSupplier || '—'} | ${rmBadge} |\n`;
           });
         }
 
@@ -945,7 +1075,7 @@ exports.chatWithAi = async (req, res) => {
         answer += `\n---\n`;
         if (!hasShortage && aggregateMaterials.length > 0) {
           answer += `> 🟢 **ORDER FULFILLMENT VERDICT: FULLY FEASIBLE**\n`;
-          answer += `> All materials and packaging inventory exist to fulfill the total **${totalPouchesNeeded.toLocaleString()} pouches** for buyer **${order.buyerName}**.\n`;
+          answer += `> All materials and packaging inventory exist to fulfill the total **${formatPouch(totalPouchesNeeded)} pouches** for buyer **${order.buyerName}**.\n`;
           answer += `> Next Step: **[Schedule Batches](/production-goal)** to allocate to kitchen production lines.`;
         } else {
           const pouchDeficitTotal = itemsEvaluation.reduce((sum, it) => sum + it.pouchShortage, 0);
@@ -1095,23 +1225,35 @@ exports.chatWithAi = async (req, res) => {
       if (orders.length > 0) {
         answer = `### 📋 Production Plan (${timeframe.label})\n\n`;
         answer += `Found **${orders.length}** planned production batch order(s):\n\n`;
-        answer += `| Order # | Buyer | Product / Recipe | Batches | Target Pouches | Status |\n`;
-        answer += `| :--- | :--- | :--- | :---: | :---: | :--- |\n`;
+        answer += `| Order # | Scheduled Date | Buyer | Product / Recipe | Batches | Target Pouches | Est. Cooked Weight | Status |\n`;
+        answer += `| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- |\n`;
+
+        let totalBatches = 0;
+        let totalPouches = 0;
+        let totalEstCookedKg = 0;
 
         orders.forEach(ord => {
           const dateStr = ord.productionDate ? new Date(ord.productionDate).toLocaleDateString('en-GB') : 'N/A';
-          ord.items.forEach(it => {
-            answer += `| **${ord.orderNumber}** (${dateStr}) | ${ord.buyerName || it.recipe?.buyerName || 'General'} | ${it.productName} | **${it.batches}** | **${Number(it.targetPouches).toLocaleString()}** | \`${ord.status}\` |\n`;
+          (ord.items || []).forEach(it => {
+            const batchNum = Number(it.batches) || 0;
+            const pouchNum = Math.round(Number(it.targetPouches) || 0);
+            const cookedWt = Number(it.recipe?.cookedBatchWeight) || (Number(it.recipe?.batchCookedWeightKg) || 100);
+            const estKg = batchNum * cookedWt;
+
+            totalBatches += batchNum;
+            totalPouches += pouchNum;
+            totalEstCookedKg += estKg;
+
+            answer += `| **${ord.orderNumber}** | ${dateStr} | ${ord.buyerName || it.recipe?.buyerName || 'General'} | ${it.productName} | **${formatNum(batchNum, prefs.decimalPlaces)}** | **${formatPouch(pouchNum)}** | ${formatNum(estKg, Math.min(2, prefs.decimalPlaces))} kg | \`${ord.status}\` |\n`;
           });
         });
 
-        const totalBatches = orders.reduce((sum, ord) => sum + ord.items.reduce((acc, it) => acc + (Number(it.batches) || 0), 0), 0);
-        const totalPouches = orders.reduce((sum, ord) => sum + ord.items.reduce((acc, it) => acc + (Number(it.targetPouches).toLocaleString() || 0), 0), 0);
-
-        answer += `\n**Summary:**\n`;
-        answer += `- 🎯 **Total Batches Scheduled:** ${totalBatches}\n`;
-        answer += `- 📦 **Total Target Pouches:** ${totalPouches.toLocaleString()}\n`;
-        answer += `- 💡 *Tip: Head over to [Schedule Production Orders](/production-goal) or [Kitchen Store Issue](/material-issue) to initiate staging.*`;
+        answer += `\n**📊 Operational Analysis & Totals:**\n`;
+        answer += `- 🎯 **Total Batches Scheduled:** **${formatNum(totalBatches, prefs.decimalPlaces)} batches**\n`;
+        answer += `- 📦 **Total Target Pouches:** **${formatPouch(totalPouches)} pouches**\n`;
+        answer += `- 🍳 **Estimated Cooked Output:** **${formatNum(totalEstCookedKg, Math.min(2, prefs.decimalPlaces))} kg**\n`;
+        answer += `- ⏱️ **Estimated Filling Runtime:** ~${formatNum(totalPouches / 2000, 1)} hours *(at nominal 2,000 pouches/hr line speed)*\n\n`;
+        answer += `💡 *Next Steps: Check materials in **[Kitchen Store Issue](/material-issue)** or plan new lines in **[Schedule Production Orders](/production-goal)**.*`;
       } else {
         answer = `### 📋 Production Plan (${timeframe.label})\n\n`;
         answer += `No scheduled production orders found specifically for **${timeframe.label}**.\n\n`;
@@ -1211,13 +1353,13 @@ exports.chatWithAi = async (req, res) => {
 
         prodKeys.forEach(pk => {
           const pb = productBreakdown[pk];
-          answer += `| **${pk}** | ${pb.batches} | ${pb.kg.toFixed(2)} kg | **${pb.filled.toLocaleString()}** | ${pb.waste.toLocaleString()} |\n`;
+          answer += `| **${pk}** | ${formatNum(pb.batches, prefs.decimalPlaces)} | ${formatNum(pb.kg, prefs.decimalPlaces)} kg | **${formatPouch(pb.filled)}** | ${formatPouch(pb.waste)} |\n`;
         });
 
         answer += `\n**Overall Totals:**\n`;
-        answer += `- 🍳 **Kitchen Batches Cooked:** ${kitchenBatches} batches (${kitchenKg.toFixed(2)} kg)\n`;
-        answer += `- 📦 **Pouches Filled:** ${filledPouches.toLocaleString()} pouches\n`;
-        answer += `- 🗑️ **Waste / Empty Pouches:** ${wastePouches.toLocaleString()} pouches\n`;
+        answer += `- 🍳 **Kitchen Batches Cooked:** ${formatNum(kitchenBatches, prefs.decimalPlaces)} batches (${formatNum(kitchenKg, prefs.decimalPlaces)} kg)\n`;
+        answer += `- 📦 **Pouches Filled:** ${formatPouch(filledPouches)} pouches\n`;
+        answer += `- 🗑️ **Waste / Empty Pouches:** ${formatPouch(wastePouches)} pouches\n`;
       } else {
         answer = `### 🍲 Production Output (${timeframe.label})\n\n`;
         answer += `No production or filling records found for ${matchedProduct ? `**${matchedProduct.name}**` : 'any product'} within **${timeframe.label}**.\n\n`;
@@ -1441,7 +1583,13 @@ exports.chatWithAi = async (req, res) => {
 
     // Prepend learning acknowledgment if a rule was just recorded
     if (justLearned) {
-      answer = `> 🧠 **Instruction Learned & Saved to Memory**\n> I have recorded your rule for \`${justLearned.topic}\`: *"${justLearned.rule}"*. I will automatically apply this rule in future answers.\n\n` + answer;
+      let detailMsg = `I have recorded your rule for \`${justLearned.topic}\`: *"${justLearned.rule}"*. I will automatically apply this rule in future answers.`;
+      if (justLearned.topic === 'DECIMAL_PRECISION') {
+        detailMsg = `✅ **Decimal Precision Set**: All batch numbers, weights, and calculations are now strictly capped to **${prefs.decimalPlaces} decimal places** across all tables.\n> ✅ **Pouch Summation Fix**: Total target pouches are strictly summed as numbers (e.g. 200 + 400 + 200 = 800), eliminating string concatenation.`;
+      } else if (justLearned.topic === 'VARIANCE_TOLERANCE') {
+        detailMsg = `✅ **Variance Tolerance Set**: Accepted kitchen cooking variance is now configured to **±${prefs.varianceThreshold}%**.`;
+      }
+      answer = `> 🧠 **Instruction Learned & Activated in Factory Memory**\n> ${detailMsg}\n\n` + answer;
     }
 
     // Generate dynamic suggestions based on this specific interaction
