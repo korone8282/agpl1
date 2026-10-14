@@ -9,7 +9,7 @@ import { Button } from "../../components/Buttons";
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { useSelector } from 'react-redux';
 import { DATA_URL } from '../../redux/Utils/constants';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
+import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../components/Table';
 import PageTransition from '../PageTransition';
 
 function getPackSizeKg(val) {
@@ -331,6 +331,8 @@ const Costing = () => {
     ? (totals.fillingCost + totals.kitchenCost) / totals.pouchesProduced
     : 0;
 
+  const stickyHeadClass = "sticky top-0 z-30 bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 px-3 text-left border-b border-white/10 shadow-[0_1px_0_0_rgba(255,255,255,0.15)] whitespace-nowrap";
+
   return (
     <PageTransition>
       <div className="w-full min-h-screen bg-black text-white py-6 px-4 sm:px-6 lg:px-8">
@@ -538,28 +540,28 @@ const Costing = () => {
             <Loader />
           ) : (
             <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 overflow-hidden shadow-2xl backdrop-blur-xl">
-              <div className="overflow-x-auto max-h-[46rem]">
-                <Table>
-                  <TableHeader className="sticky top-0 z-20 bg-[#141414] border-b border-white/10 shadow-lg">
-                    <TableRow className="bg-[#141414] hover:bg-[#141414] border-b border-white/10">
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Date</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Shift</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Buyer</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Product Name</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Yield Qty (Kg)</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Pouches</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (P)</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Wastage (Kg)</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Production Qty (Kg)</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Variance (Kg)</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Fill Workers</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Fill Cost/P</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Kitch Workers</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Kitch Cost/Kg</TableHead>
-                      <TableHead className="bg-[#141414] text-primary text-xs font-mono py-3.5">Cost/Pouch</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5 border-l border-white/10">Packed</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Disp Workers</TableHead>
-                      <TableHead className="bg-[#141414] text-zinc-400 text-xs font-mono py-3.5">Disp Cost/P</TableHead>
+              <div className="overflow-auto max-h-[46rem] relative">
+                <table className="w-full caption-bottom text-sm">
+                  <TableHeader className="sticky top-0 z-30 bg-[#141414]">
+                    <TableRow className="bg-[#141414] hover:bg-[#141414]">
+                      <TableHead className={stickyHeadClass}>Date</TableHead>
+                      <TableHead className={stickyHeadClass}>Shift</TableHead>
+                      <TableHead className={stickyHeadClass}>Buyer</TableHead>
+                      <TableHead className={stickyHeadClass}>Product Name</TableHead>
+                      <TableHead className={`${stickyHeadClass} border-l`}>Yield Qty (Kg)</TableHead>
+                      <TableHead className={stickyHeadClass}>Pouches</TableHead>
+                      <TableHead className={stickyHeadClass}>Wastage (P)</TableHead>
+                      <TableHead className={stickyHeadClass}>Wastage (Kg)</TableHead>
+                      <TableHead className={stickyHeadClass}>Production Qty (Kg)</TableHead>
+                      <TableHead className={stickyHeadClass}>Variance (Kg)</TableHead>
+                      <TableHead className={`${stickyHeadClass} border-l`}>Fill Workers</TableHead>
+                      <TableHead className={stickyHeadClass}>Fill Cost/P</TableHead>
+                      <TableHead className={stickyHeadClass}>Kitch Workers</TableHead>
+                      <TableHead className={stickyHeadClass}>Kitch Cost/Kg</TableHead>
+                      <TableHead className={`${stickyHeadClass} text-primary font-bold`}>Cost/Pouch</TableHead>
+                      <TableHead className={`${stickyHeadClass} border-l`}>Packed</TableHead>
+                      <TableHead className={stickyHeadClass}>Disp Workers</TableHead>
+                      <TableHead className={stickyHeadClass}>Disp Cost/P</TableHead>
                     </TableRow>
                   </TableHeader>
 
@@ -676,7 +678,7 @@ const Costing = () => {
                       </TableRow>
                     )}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
           )}
