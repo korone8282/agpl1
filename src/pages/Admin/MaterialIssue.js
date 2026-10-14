@@ -8,7 +8,8 @@ import {
   Calendar,
   Users,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiConnector } from '../../redux/Utils/apiConnector';
@@ -42,6 +43,7 @@ const MaterialIssue = () => {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -155,10 +157,11 @@ const MaterialIssue = () => {
     const materials = currentMaterials || rawMaterials;
     const bNum = parseFloat(batchesVal);
     const validBatches = isNaN(bNum) || bNum < 0 ? 0 : bNum;
-    const itemMap = new Map();
+    const items = [];
+    const cumulativeIssuedByRm = new Map();
 
     if (rec && rec.ingredients) {
-      rec.ingredients.forEach((ing) => {
+      rec.ingredients.forEach((ing, ingIdx) => {
         let unitMultiplier = 1;
         if (ing.unit === 'g' || ing.unit === 'gm') unitMultiplier = 0.001;
         if (ing.unit === 'ml') unitMultiplier = 0.001;
@@ -167,18 +170,21 @@ const MaterialIssue = () => {
         const theoreticalGross = parseFloat(((Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0)) * validBatches).toFixed(3));
         const targetUnit = ing.unit === 'g' || ing.unit === 'gm' ? 'kg' : (ing.unit === 'ml' ? 'L' : (ing.unit || 'kg'));
 
-        const matchKey = ing.rawMaterial ? String(ing.rawMaterial) : ing.materialName.trim().toLowerCase();
-
         const matchedRm = materials.find((rm) =>
           (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
           rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
         );
 
+        const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
         const availStock = matchedRm ? (matchedRm.currentStock || 0) : 0;
         const actualIssued = theoreticalGross;
-        const remaining = parseFloat((availStock - actualIssued).toFixed(3));
 
-        itemMap.set(matchKey, {
+        const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
+        const remaining = parseFloat((availStock - previouslyIssued - actualIssued).toFixed(3));
+        cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssued);
+
+        items.push({
+          rowKey: `${rmKey}_${ingIdx}`,
           rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
           materialName: matchedRm ? matchedRm.name : ing.materialName,
           edibleBase: Number(ing.edibleQuantity || 0),
@@ -189,15 +195,16 @@ const MaterialIssue = () => {
           availableStock: availStock,
           actualIssuedQty: actualIssued,
           remainingStock: remaining,
-          unit: matchedRm ? matchedRm.baseUnit : targetUnit
+          unit: matchedRm ? matchedRm.baseUnit : targetUnit,
+          notes: ing.notes || ''
         });
       });
     } else if (ord && ord.items) {
-      ord.items.forEach((item) => {
+      ord.items.forEach((item, ordItemIdx) => {
         const recipe = item.recipe;
         if (!recipe || !recipe.ingredients) return;
 
-        recipe.ingredients.forEach((ing) => {
+        recipe.ingredients.forEach((ing, ingIdx) => {
           let unitMultiplier = 1;
           if (ing.unit === 'g' || ing.unit === 'gm') unitMultiplier = 0.001;
           if (ing.unit === 'ml') unitMultiplier = 0.001;
@@ -206,43 +213,39 @@ const MaterialIssue = () => {
           const theoreticalGross = parseFloat(((Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0)) * validBatches).toFixed(3));
           const targetUnit = ing.unit === 'g' || ing.unit === 'gm' ? 'kg' : (ing.unit === 'ml' ? 'L' : (ing.unit || 'kg'));
 
-          const matchKey = ing.rawMaterial ? String(ing.rawMaterial) : ing.materialName.trim().toLowerCase();
+          const matchedRm = materials.find((rm) =>
+            (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
+            rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
+          );
 
-          if (itemMap.has(matchKey)) {
-            const existing = itemMap.get(matchKey);
-            existing.theoreticalEdibleQty = parseFloat((existing.theoreticalEdibleQty + edibleQty).toFixed(3));
-            existing.theoreticalGrossQty = parseFloat((existing.theoreticalGrossQty + theoreticalGross).toFixed(3));
-            existing.actualIssuedQty = parseFloat((existing.actualIssuedQty + theoreticalGross).toFixed(3));
-            existing.remainingStock = parseFloat((existing.availableStock - existing.actualIssuedQty).toFixed(3));
-          } else {
-            const matchedRm = materials.find((rm) =>
-              (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
-              rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
-            );
+          const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
+          const availStock = matchedRm ? (matchedRm.currentStock || 0) : 0;
+          const actualIssued = theoreticalGross;
 
-            const availStock = matchedRm ? (matchedRm.currentStock || 0) : 0;
-            const actualIssued = theoreticalGross;
-            const remaining = parseFloat((availStock - actualIssued).toFixed(3));
+          const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
+          const remaining = parseFloat((availStock - previouslyIssued - actualIssued).toFixed(3));
+          cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssued);
 
-            itemMap.set(matchKey, {
-              rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
-              materialName: matchedRm ? matchedRm.name : ing.materialName,
-              edibleBase: Number(ing.edibleQuantity || 0),
-              lossFactor: Number(ing.lossFactor) || 1.0,
-              unitMultiplier,
-              theoreticalEdibleQty: edibleQty,
-              theoreticalGrossQty: theoreticalGross,
-              availableStock: availStock,
-              actualIssuedQty: actualIssued,
-              remainingStock: remaining,
-              unit: matchedRm ? matchedRm.baseUnit : targetUnit
-            });
-          }
+          items.push({
+            rowKey: `${rmKey}_${ordItemIdx}_${ingIdx}`,
+            rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
+            materialName: matchedRm ? matchedRm.name : ing.materialName,
+            edibleBase: Number(ing.edibleQuantity || 0),
+            lossFactor: Number(ing.lossFactor) || 1.0,
+            unitMultiplier,
+            theoreticalEdibleQty: edibleQty,
+            theoreticalGrossQty: theoreticalGross,
+            availableStock: availStock,
+            actualIssuedQty: actualIssued,
+            remainingStock: remaining,
+            unit: matchedRm ? matchedRm.baseUnit : targetUnit,
+            notes: ing.notes || ''
+          });
         });
       });
     }
 
-    setIssueItems(Array.from(itemMap.values()));
+    setIssueItems(items);
   };
 
   const handleBatchesChange = (newVal) => {
@@ -255,13 +258,40 @@ const MaterialIssue = () => {
 
   const handleActualQtyChange = (idx, value) => {
     const updated = [...issueItems];
-    const valNum = parseFloat(value);
-    const parsedVal = isNaN(valNum) ? 0 : valNum;
-
     updated[idx].actualIssuedQty = value;
-    const avail = updated[idx].availableStock || 0;
-    updated[idx].remainingStock = parseFloat((avail - parsedVal).toFixed(3));
+
+    // Recalculate remainingStock progressively across all rows
+    const cumulative = new Map();
+    updated.forEach((it) => {
+      const rmKey = String(it.rawMaterialId || it.materialName).trim().toLowerCase();
+      const usedBefore = cumulative.get(rmKey) || 0;
+      const numVal = parseFloat(it.actualIssuedQty);
+      const thisIssued = isNaN(numVal) ? 0 : numVal;
+      it.remainingStock = parseFloat(((it.availableStock || 0) - usedBefore - thisIssued).toFixed(3));
+      cumulative.set(rmKey, usedBefore + thisIssued);
+    });
+
     setIssueItems(updated);
+  };
+
+  const handleDeleteIssue = async (issueId, issueNumber) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Kitchen Issue #${issueNumber}? This will revert and restore all warehouse raw material stock deductions caused by this issue.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(issueId);
+      const res = await apiConnector(`${INVENTORY_MRP_URL}/material-issues/${issueId}`, 'DELETE');
+      if (res.data?.success) {
+        toast.success(`Kitchen Issue #${issueNumber} deleted and stock restored!`);
+        fetchInitialData();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete kitchen issue');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleConfirmIssue = async (e) => {
@@ -542,6 +572,7 @@ const MaterialIssue = () => {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-white/5 border-b border-white/10 text-gray-400">
+                      <th className="py-3 px-3 w-10 text-center font-mono text-gray-400">#</th>
                       <th className="py-3 px-4">Ingredient Name</th>
                       <th className="py-3 px-4 text-right">Edible Kettle Qty</th>
                       <th className="py-3 px-4 text-center">Loss Factor</th>
@@ -555,7 +586,8 @@ const MaterialIssue = () => {
                     {issueItems.map((item, idx) => {
                       const isNegative = Number(item.remainingStock) < 0;
                       return (
-                        <tr key={idx} className="hover:bg-white/5">
+                        <tr key={item.rowKey || idx} className="hover:bg-white/5">
+                          <td className="py-3 px-3 text-center font-mono text-gray-500">{idx + 1}</td>
                           <td className="py-3 px-4 font-medium text-white">{item.materialName}</td>
                           <td className="py-3 px-4 text-right font-mono text-gray-300">
                             {format3Decimals(item.theoreticalEdibleQty)} {item.unit}
@@ -642,6 +674,7 @@ const MaterialIssue = () => {
                     <th className="py-3 px-4 text-center">Batches</th>
                     <th className="py-3 px-4 text-center">Items Handed Over</th>
                     <th className="py-3 px-4">Notes</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -684,12 +717,24 @@ const MaterialIssue = () => {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-gray-400">{iss.notes || '—'}</td>
+                          <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteIssue(iss._id, iss.issueNumber)}
+                              disabled={deletingId === iss._id}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/25 transition-all text-xs flex items-center gap-1.5 mx-auto disabled:opacity-50"
+                              title="Delete issue and undo warehouse stock reductions"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{deletingId === iss._id ? 'Reverting...' : 'Delete'}</span>
+                            </button>
+                          </td>
                         </tr>
 
                         {/* Dropdown breakdown row for all materials issued */}
                         {isExpanded && (
                           <tr className="bg-black/60 border-b border-white/15">
-                            <td colSpan={7} className="p-3 sm:p-5">
+                            <td colSpan={8} className="p-3 sm:p-5">
                               <div className="bg-secondary/25 border border-white/10 rounded-xl p-4 shadow-inner">
                                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-2.5 border-b border-white/10">
                                   <div className="flex items-center gap-2">

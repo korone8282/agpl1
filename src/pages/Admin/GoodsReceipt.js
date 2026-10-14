@@ -7,7 +7,10 @@ import {
   CheckCircle2,
   FileText,
   ArrowLeft,
-  Search
+  Search,
+  Edit2,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL } from '../../redux/Utils/constants';
@@ -29,6 +32,23 @@ const GoodsReceipt = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Edit / Delete GRN Audit Trail States
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [editForm, setEditForm] = useState({
+    rawMaterialId: '',
+    quantity: '',
+    rate: '',
+    lotNumber: '',
+    expiryDate: '',
+    vendor: '',
+    reason: '',
+    grnNumber: ''
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const [deletingEntry, setDeletingEntry] = useState(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
   // GRN Form State
   const [grnForm, setGrnForm] = useState({
     grnNumber: '',
@@ -49,7 +69,7 @@ const GoodsReceipt = () => {
       setLoading(true);
       const [matRes, ledgerRes] = await Promise.all([
         apiConnector(`${INVENTORY_MRP_URL}/raw-materials`, 'GET'),
-        apiConnector(`${INVENTORY_MRP_URL}/ledger?transactionType=GRN&limit=20`, 'GET')
+        apiConnector(`${INVENTORY_MRP_URL}/ledger?transactionType=GRN&limit=100`, 'GET')
       ]);
 
       if (matRes.data?.success) setMaterials(matRes.data.data);
@@ -116,6 +136,90 @@ const GoodsReceipt = () => {
       toast.error(err.response?.data?.message || 'Failed to record GRN');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (entry) => {
+    setEditingEntry(entry);
+    setEditForm({
+      rawMaterialId: entry.rawMaterial?._id || entry.rawMaterial || '',
+      quantity: entry.quantity !== undefined ? entry.quantity : '',
+      rate: entry.rate !== undefined ? entry.rate : '',
+      lotNumber: entry.lotNumber || '',
+      expiryDate: entry.expiryDate ? new Date(entry.expiryDate).toISOString().split('T')[0] : '',
+      vendor: entry.vendor || '',
+      reason: entry.reason || '',
+      grnNumber: entry.grnNumber || ''
+    });
+  };
+
+  const handleCloseEditModal = () => {
+    setEditingEntry(null);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingEntry) return;
+
+    const qty = Number(editForm.quantity);
+    const rate = Number(editForm.rate);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error('Please enter a valid positive quantity');
+      return;
+    }
+    if (isNaN(rate) || rate < 0) {
+      toast.error('Please enter a valid purchase rate');
+      return;
+    }
+
+    try {
+      setEditSubmitting(true);
+      const res = await apiConnector(
+        `${INVENTORY_MRP_URL}/grn/${editingEntry._id}`,
+        'PUT',
+        {
+          ...editForm,
+          quantity: qty,
+          rate: rate
+        }
+      );
+      if (res.data?.success) {
+        toast.success(res.data.message || 'GRN audit trail entry updated successfully');
+        setEditingEntry(null);
+        fetchData();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update GRN entry');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (entry) => {
+    setDeletingEntry(entry);
+  };
+
+  const handleCloseDeleteModal = () => {
+    setDeletingEntry(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingEntry) return;
+    try {
+      setDeleteSubmitting(true);
+      const res = await apiConnector(
+        `${INVENTORY_MRP_URL}/grn/${deletingEntry._id}`,
+        'DELETE'
+      );
+      if (res.data?.success) {
+        toast.success(res.data.message || 'GRN entry deleted and warehouse stock reverted');
+        setDeletingEntry(null);
+        fetchData();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete GRN entry');
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -389,6 +493,7 @@ const GoodsReceipt = () => {
                       <th className="py-3 px-4">Lot No</th>
                       <th className="py-3 px-4">Expiry Date</th>
                       <th className="py-3 px-4">Supplier / Reason</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
@@ -409,6 +514,26 @@ const GoodsReceipt = () => {
                           {entry.expiryDate ? new Date(entry.expiryDate).toLocaleDateString() : '—'}
                         </td>
                         <td className="py-3 px-4 text-gray-400">{entry.reason || '—'}</td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(entry)}
+                              title="Edit GRN Entry"
+                              className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDeleteModal(entry)}
+                              title="Delete GRN Entry"
+                              className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -417,6 +542,237 @@ const GoodsReceipt = () => {
             </div>
           )}
         </div>
+
+      {/* Edit GRN Modal */}
+      {editingEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-[#111111] border border-white/15 rounded-2xl p-6 w-full max-w-xl shadow-2xl relative my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Update GRN Audit Trail Entry</h3>
+                  <p className="text-xs text-gray-400 font-mono">GRN: {editingEntry.grnNumber || '—'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseEditModal}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Raw Material *</label>
+                <select
+                  value={editForm.rawMaterialId}
+                  onChange={(e) => setEditForm({ ...editForm, rawMaterialId: e.target.value })}
+                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                >
+                  {materials.map((m) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name} ({m.storageType} - {m.baseUnit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">GRN Number</label>
+                  <input
+                    type="text"
+                    value={editForm.grnNumber}
+                    onChange={(e) => setEditForm({ ...editForm, grnNumber: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Lot / Batch No</label>
+                  <input
+                    type="text"
+                    value={editForm.lotNumber}
+                    onChange={(e) => setEditForm({ ...editForm, lotNumber: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    Inward Quantity ({editingEntry.unit || 'units'}) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    required
+                    value={editForm.quantity}
+                    onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Purchase Rate (₹/unit) *</label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    required
+                    value={editForm.rate}
+                    onChange={(e) => setEditForm({ ...editForm, rate: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editForm.expiryDate}
+                    onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Supplier / Vendor</label>
+                  <input
+                    type="text"
+                    value={editForm.vendor}
+                    onChange={(e) => setEditForm({ ...editForm, vendor: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Reason / Note</label>
+                <input
+                  type="text"
+                  value={editForm.reason}
+                  onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}
+                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 text-xs text-gray-300 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span>Calculated Total Amount:</span>
+                  <span className="font-mono font-bold text-white">
+                    ₹{format3Decimals((Number(editForm.quantity) || 0) * (Number(editForm.rate) || 0))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-white/5">
+                  <span>Original Qty: {format3Decimals(editingEntry.quantity)} {editingEntry.unit}</span>
+                  <span>
+                    Net Stock Change:{' '}
+                    <strong
+                      className={
+                        (Number(editForm.quantity) || 0) - Number(editingEntry.quantity) >= 0
+                          ? 'text-emerald-400'
+                          : 'text-rose-400'
+                      }
+                    >
+                      {(Number(editForm.quantity) || 0) - Number(editingEntry.quantity) >= 0 ? '+' : ''}
+                      {format3Decimals((Number(editForm.quantity) || 0) - Number(editingEntry.quantity))} {editingEntry.unit}
+                    </strong>
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 italic">
+                  * Live inventory current stock will be automatically synchronized with this change.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={handleCloseEditModal}
+                  disabled={editSubmitting}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSubmitting}
+                  className="px-5 py-2 text-xs font-semibold rounded-xl bg-primary text-black hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+                >
+                  {editSubmitting ? 'Saving Changes...' : 'Save & Synchronize Stock'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#121212] border border-white/15 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                <AlertTriangle className="w-6 h-6 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Delete GRN Entry?</h3>
+                <p className="text-xs text-gray-400 font-mono">
+                  GRN No: <span className="text-primary font-semibold">{deletingEntry.grnNumber || '—'}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-black/50 border border-white/10 rounded-xl p-4 text-xs space-y-2">
+              <div className="flex justify-between text-gray-300">
+                <span>Material:</span>
+                <span className="font-semibold text-white">{deletingEntry.materialName}</span>
+              </div>
+              <div className="flex justify-between text-gray-300">
+                <span>Inward Qty:</span>
+                <span className="font-mono font-bold text-rose-400">
+                  -{format3Decimals(deletingEntry.quantity)} {deletingEntry.unit}
+                </span>
+              </div>
+              <div className="flex justify-between text-gray-300">
+                <span>Purchase Rate:</span>
+                <span className="font-mono text-white">₹{format3Decimals(deletingEntry.rate)}</span>
+              </div>
+              <div className="flex justify-between text-gray-300">
+                <span>Supplier / Reason:</span>
+                <span className="text-gray-300">{deletingEntry.reason || deletingEntry.vendor || '—'}</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-rose-300/90 leading-relaxed bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
+              ⚠️ <strong>Stock Reversal Warning:</strong> Deleting this entry will undo the inward stock addition (-{format3Decimals(deletingEntry.quantity)} {deletingEntry.unit}) from warehouse inventory and permanently delete this audit record.
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleCloseDeleteModal}
+                disabled={deleteSubmitting}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleteSubmitting}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition-colors flex items-center gap-1.5 shadow-lg shadow-rose-600/20"
+              >
+                {deleteSubmitting ? 'Deleting...' : 'Confirm Delete & Undo Stock'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
   );
 };

@@ -71,16 +71,10 @@ const RawMaterials = () => {
   const [customUnit, setCustomUnit] = useState('');
   const [newMaterial, setNewMaterial] = useState({
     name: '',
-    code: '',
     storageType: 'Ambient',
     baseUnit: 'kg',
     currentStock: 0,
-    minSafetyStock: 0,
-    leadTimeDays: 1,
-    packSize: 1,
-    preferredSupplier: '',
-    lastPurchaseRate: 0,
-    earliestExpiryDate: ''
+    leadTimeDays: 1
   });
 
   const [adjustment, setAdjustment] = useState({
@@ -139,16 +133,10 @@ const RawMaterials = () => {
         setCustomUnit('');
         setNewMaterial({
           name: '',
-          code: '',
           storageType: 'Ambient',
           baseUnit: 'kg',
           currentStock: 0,
-          minSafetyStock: 0,
-          leadTimeDays: 1,
-          packSize: 1,
-          preferredSupplier: '',
-          lastPurchaseRate: 0,
-          earliestExpiryDate: ''
+          leadTimeDays: 1
         });
         fetchMaterials();
       }
@@ -593,16 +581,6 @@ const RawMaterials = () => {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Item Code</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. RM-VEG-001"
-                      value={newMaterial.code}
-                      onChange={(e) => setNewMaterial({ ...newMaterial, code: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Storage Type</label>
                     <select
                       value={newMaterial.storageType}
@@ -613,9 +591,7 @@ const RawMaterials = () => {
                       <option value="Cold">Cold Storage (Perishable/Dairy)</option>
                     </select>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Base Unit</label>
                     <select
@@ -652,79 +628,37 @@ const RawMaterials = () => {
                       />
                     )}
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Opening Stock</label>
                     <input
                       type="number"
                       step="0.001"
+                      min="0"
                       placeholder="0"
                       value={newMaterial.currentStock}
                       onChange={(e) => setNewMaterial({ ...newMaterial, currentStock: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary font-mono"
                     />
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Lead Time (Days)</label>
                     <input
                       type="number"
+                      min="1"
                       placeholder="1"
                       value={newMaterial.leadTimeDays}
                       onChange={(e) => setNewMaterial({ ...newMaterial, leadTimeDays: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">
-                      Pack Size ({newMaterial.baseUnit || 'unit'}/pack)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      placeholder="25"
-                      value={newMaterial.packSize}
-                      onChange={(e) => setNewMaterial({ ...newMaterial, packSize: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Purchase Rate (₹)</label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      placeholder="0.00"
-                      value={newMaterial.lastPurchaseRate}
-                      onChange={(e) => setNewMaterial({ ...newMaterial, lastPurchaseRate: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Preferred Supplier</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Mandi / Amul / MDH"
-                      value={newMaterial.preferredSupplier}
-                      onChange={(e) => setNewMaterial({ ...newMaterial, preferredSupplier: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Earliest Expiry Date (Optional, enables FEFO tracking)
-                  </label>
-                  <input
-                    type="date"
-                    value={newMaterial.earliestExpiryDate}
-                    onChange={(e) => setNewMaterial({ ...newMaterial, earliestExpiryDate: e.target.value })}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                  />
+                <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl text-[11px] text-zinc-400 font-mono">
+                  💡 Other details like supplier, purchase rates, batches & expiry dates will be recorded through GRN (Goods Receipt Note) only.
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
@@ -737,7 +671,7 @@ const RawMaterials = () => {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-primary text-black font-semibold hover:bg-primary/90 text-sm"
+                    className="px-5 py-2 rounded-xl bg-primary text-black font-semibold hover:bg-primary/90 text-sm shadow-lg shadow-primary/20"
                   >
                     Save Material
                   </button>

@@ -15,6 +15,8 @@ const {
     getStockLedger,
     recordAdjustment,
     recordGRN,
+    updateGRN,
+    deleteGRN,
     getPriceTrends,
     createProductionOrder,
     getProductionOrders,
@@ -26,6 +28,7 @@ const {
     getPurchaseOrders,
     createMaterialIssue,
     getMaterialIssues,
+    deleteMaterialIssue,
     createKitchenVariance,
     getKitchenVariances,
     lookupFillingData,
@@ -73,6 +76,8 @@ router.post('/stock/import-opening', upload.single('file'), importOpeningStockEx
 router.get('/ledger', getStockLedger);
 router.post('/ledger/adjust', recordAdjustment);
 router.post('/grn', recordGRN);
+router.put('/grn/:id', updateGRN);
+router.delete('/grn/:id', deleteGRN);
 
 // Production Orders
 router.route('/production-orders')
@@ -113,6 +118,8 @@ router.route('/purchase-orders')
 router.route('/material-issues')
     .get(getMaterialIssues)
     .post(createMaterialIssue);
+
+router.delete('/material-issues/:id', deleteMaterialIssue);
 
 // Kitchen Variance Tracker
 router.route('/kitchen-variance')

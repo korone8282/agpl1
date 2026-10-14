@@ -1,4 +1,5 @@
 const xlsx = require('xlsx');
+const mongoose = require('mongoose');
 const RawMaterial = require('../models/rawMaterialModel');
 const Recipe = require('../models/recipeModel');
 const StockLedger = require('../models/stockLedgerModel');
@@ -1123,6 +1124,178 @@ exports.recordGRN = async (req, res) => {
     }
 };
 
+exports.updateGRN = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            quantity,
+            rate,
+            lotNumber,
+            expiryDate,
+            vendor,
+            reason,
+            grnNumber,
+            rawMaterialId
+        } = req.body;
+
+        const entry = await StockLedger.findById(id);
+        if (!entry) {
+            return res.status(404).json({ success: false, message: 'GRN audit trail entry not found' });
+        }
+
+        const oldQty = Number(entry.quantity) || 0;
+        const newQty = quantity !== undefined ? Number(quantity) : oldQty;
+        const newRate = rate !== undefined ? Number(rate) : (Number(entry.rate) || 0);
+
+        const currentMatId = String(entry.rawMaterial?._id || entry.rawMaterial);
+        const targetMatId = rawMaterialId ? String(rawMaterialId) : currentMatId;
+        const isMaterialChanged = targetMatId && targetMatId !== currentMatId;
+
+        if (isMaterialChanged) {
+            // 1. Revert stock from old material
+            if (currentMatId) {
+                const oldMat = await RawMaterial.findById(currentMatId);
+                if (oldMat) {
+                    oldMat.currentStock = Math.max(0, (oldMat.currentStock || 0) - oldQty);
+                    if (entry.grnNumber && Array.isArray(oldMat.priceHistory)) {
+                        oldMat.priceHistory = oldMat.priceHistory.filter(p => p.grnNumber !== entry.grnNumber);
+                    }
+                    await oldMat.save();
+                }
+            }
+            // 2. Add stock to new material
+            const newMat = await RawMaterial.findById(targetMatId);
+            if (!newMat) {
+                return res.status(404).json({ success: false, message: 'Selected new raw material not found' });
+            }
+            newMat.currentStock = (newMat.currentStock || 0) + newQty;
+            newMat.lastPurchaseRate = newRate;
+            if (entry.grnNumber) {
+                newMat.priceHistory.push({
+                    date: entry.createdAt || new Date(),
+                    rate: newRate,
+                    grnNumber: grnNumber || entry.grnNumber,
+                    vendor: vendor || entry.vendor || ''
+                });
+            }
+            await newMat.save();
+
+            entry.rawMaterial = newMat._id;
+            entry.materialName = newMat.name;
+            entry.unit = newMat.baseUnit;
+            entry.storageType = newMat.storageType;
+            entry.balanceAfter = newMat.currentStock;
+        } else {
+            // Same raw material: adjust stock difference
+            if (currentMatId) {
+                const rawMat = await RawMaterial.findById(currentMatId);
+                if (rawMat) {
+                    const diff = newQty - oldQty;
+                    rawMat.currentStock = Math.max(0, (rawMat.currentStock || 0) + diff);
+                    if (rate !== undefined) {
+                        rawMat.lastPurchaseRate = newRate;
+                    }
+                    if ((grnNumber || entry.grnNumber) && Array.isArray(rawMat.priceHistory)) {
+                        const targetGrn = entry.grnNumber;
+                        const ph = rawMat.priceHistory.find(p => p.grnNumber === targetGrn);
+                        if (ph) {
+                            ph.rate = newRate;
+                            if (vendor !== undefined) ph.vendor = vendor;
+                            if (grnNumber !== undefined) ph.grnNumber = grnNumber;
+                        }
+                    }
+                    if (expiryDate) {
+                        const exp = new Date(expiryDate);
+                        if (!rawMat.earliestExpiryDate || exp < new Date(rawMat.earliestExpiryDate)) {
+                            rawMat.earliestExpiryDate = exp;
+                        }
+                    }
+                    await rawMat.save();
+                    entry.balanceAfter = rawMat.currentStock;
+                }
+            }
+        }
+
+        entry.quantity = newQty;
+        entry.rate = newRate;
+        entry.totalAmount = newQty * newRate;
+        if (lotNumber !== undefined) entry.lotNumber = lotNumber;
+        if (expiryDate !== undefined) entry.expiryDate = expiryDate ? new Date(expiryDate) : undefined;
+        if (vendor !== undefined) {
+            entry.vendor = vendor;
+            if (!reason) entry.reason = `GRN from ${vendor}`;
+        }
+        if (reason !== undefined) entry.reason = reason;
+        if (grnNumber !== undefined) entry.grnNumber = grnNumber;
+
+        await entry.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'GRN audit trail entry updated successfully and warehouse stock synchronized',
+            data: entry
+        });
+    } catch (err) {
+        console.error('Update GRN Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deleteGRN = async (req, res) => {
+    try {
+        const { id } = req.params;
+        let entries = [];
+        const isObjectId = mongoose.Types.ObjectId.isValid(id);
+        if (isObjectId) {
+            const single = await StockLedger.findById(id);
+            if (single) {
+                entries.push(single);
+            }
+        }
+
+        // If not found by ID, look for entries by grnNumber
+        if (entries.length === 0) {
+            entries = await StockLedger.find({ grnNumber: id, transactionType: 'GRN' });
+        }
+
+        if (entries.length === 0) {
+            return res.status(404).json({ success: false, message: 'GRN audit trail entry not found' });
+        }
+
+        // For each entry, reverse the inward stock in RawMaterial
+        for (const entry of entries) {
+            const rawMatId = entry.rawMaterial?._id || entry.rawMaterial;
+            if (rawMatId) {
+                const rawMat = await RawMaterial.findById(rawMatId);
+                if (rawMat) {
+                    const qty = Number(entry.quantity) || 0;
+                    rawMat.currentStock = Math.max(0, (rawMat.currentStock || 0) - qty);
+
+                    // Also remove price history entry if matched
+                    if (entry.grnNumber && Array.isArray(rawMat.priceHistory)) {
+                        rawMat.priceHistory = rawMat.priceHistory.filter(
+                            p => p.grnNumber !== entry.grnNumber
+                        );
+                        if (rawMat.priceHistory.length > 0) {
+                            rawMat.lastPurchaseRate = rawMat.priceHistory[rawMat.priceHistory.length - 1].rate;
+                        }
+                    }
+                    await rawMat.save();
+                }
+            }
+            await StockLedger.findByIdAndDelete(entry._id);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Successfully deleted ${entries.length} GRN audit trail item(s) and reverted warehouse stock`
+        });
+    } catch (err) {
+        console.error('Delete GRN Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 exports.getPriceTrends = async (req, res) => {
     try {
         const rawMat = await RawMaterial.findById(req.params.id);
@@ -1995,7 +2168,15 @@ exports.createMaterialIssue = async (req, res) => {
         }
 
         for (const it of items) {
-            const rawMat = await RawMaterial.findById(it.rawMaterialId);
+            let rawMat = null;
+            if (it.rawMaterialId) {
+                rawMat = await RawMaterial.findById(it.rawMaterialId);
+            }
+            if (!rawMat && it.materialName) {
+                rawMat = await RawMaterial.findOne({
+                    name: { $regex: `^${it.materialName.trim()}$`, $options: 'i' }
+                });
+            }
             if (!rawMat) continue;
 
             const issuedQty = Number(it.actualIssuedQty) || 0;
@@ -2071,6 +2252,63 @@ exports.getMaterialIssues = async (req, res) => {
             .sort({ createdAt: -1 })
             .populate('productionOrder');
         res.status(200).json({ success: true, count: issues.length, data: issues });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.deleteMaterialIssue = async (req, res) => {
+    try {
+        const issue = await MaterialIssue.findById(req.params.id);
+        if (!issue) {
+            return res.status(404).json({ success: false, message: 'Material issue not found' });
+        }
+
+        // 1. Undo stock reductions for each raw material in the issue
+        for (const it of (issue.items || [])) {
+            const issuedQty = Number(it.actualIssuedQty) || 0;
+            if (issuedQty > 0) {
+                let rawMat = null;
+                if (it.rawMaterial) {
+                    rawMat = await RawMaterial.findById(it.rawMaterial);
+                }
+                if (!rawMat && it.materialName) {
+                    rawMat = await RawMaterial.findOne({
+                        name: { $regex: `^${it.materialName.trim()}$`, $options: 'i' }
+                    });
+                }
+                if (rawMat) {
+                    rawMat.currentStock = Math.max(0, (rawMat.currentStock || 0) + issuedQty);
+                    await rawMat.save();
+                }
+            }
+        }
+
+        // 2. Remove corresponding StockLedger entries created for this issue
+        if (issue.issueNumber) {
+            await StockLedger.deleteMany({
+                referenceId: issue.issueNumber,
+                transactionType: 'KITCHEN_ISSUE'
+            });
+        }
+
+        const ledgerIds = [];
+        (issue.items || []).forEach(it => {
+            (it.lotsUsed || []).forEach(l => {
+                if (l.ledgerId) ledgerIds.push(l.ledgerId);
+            });
+        });
+        if (ledgerIds.length > 0) {
+            await StockLedger.deleteMany({ _id: { $in: ledgerIds } });
+        }
+
+        // 3. Delete the issue document itself
+        await MaterialIssue.findByIdAndDelete(req.params.id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Material issue deleted and stock reductions reverted successfully'
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
