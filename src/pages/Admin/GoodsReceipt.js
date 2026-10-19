@@ -335,12 +335,12 @@ const GoodsReceipt = () => {
                     key={idx}
                     className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-black/40 p-3 rounded-xl border border-white/10 items-center"
                   >
-                    <div className="md:col-span-4">
+                    <div className="md:col-span-3">
                       <select
                         required
                         value={row.rawMaterialId}
                         onChange={(e) => updateItemRow(idx, 'rawMaterialId', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                       >
                         <option value="">-- Choose Raw Material --</option>
                         {materials.map((m) => (
@@ -359,7 +359,7 @@ const GoodsReceipt = () => {
                         placeholder="Quantity"
                         value={row.quantityReceived}
                         onChange={(e) => updateItemRow(idx, 'quantityReceived', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                       />
                     </div>
 
@@ -371,7 +371,7 @@ const GoodsReceipt = () => {
                         placeholder="Rate (₹/unit)"
                         value={row.purchaseRate}
                         onChange={(e) => updateItemRow(idx, 'purchaseRate', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                       />
                     </div>
 
@@ -381,26 +381,24 @@ const GoodsReceipt = () => {
                         placeholder="Lot / Batch No"
                         value={row.lotNumber}
                         onChange={(e) => updateItemRow(idx, 'lotNumber', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                       />
                     </div>
 
-                    <div className="md:col-span-1">
+                    <div className="md:col-span-3 flex items-center gap-2">
                       <input
                         type="date"
                         title="Expiry Date"
                         value={row.expiryDate}
                         onChange={(e) => updateItemRow(idx, 'expiryDate', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-2 py-2 text-[13px] text-white"
+                        className="flex-1 min-w-[145px] bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                       />
-                    </div>
-
-                    <div className="md:col-span-1 text-center">
                       {grnForm.items.length > 1 && (
                         <button
                           type="button"
                           onClick={() => removeItemRow(idx)}
-                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10"
+                          title="Remove Row"
+                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 shrink-0"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

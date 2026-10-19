@@ -19,6 +19,10 @@ const materialOrderSchema = new mongoose.Schema(
             type: Date,
             default: Date.now
         },
+        leadTimeDays: {
+            type: Number,
+            default: null
+        },
         unit: {
             type: String,
             default: 'kg'

@@ -23,6 +23,7 @@ const {
     updateProductionOrder,
     deleteProductionOrder,
     calculateMRP,
+    exportMrpMatrixExcel,
     getPerishableAlerts,
     createPurchaseOrder,
     getPurchaseOrders,
@@ -38,6 +39,7 @@ const {
     deleteBuyerOrder,
     getMaterialOrders,
     createMaterialOrderBatch,
+    updateMaterialOrderBatch,
     deleteMaterialOrderBatch,
     clearMaterialOrders
 } = require('../controllers/inventoryMrpController');
@@ -102,11 +104,13 @@ router.route('/material-orders')
     .get(getMaterialOrders)
     .post(createMaterialOrderBatch);
 
+router.put('/material-orders/:id', updateMaterialOrderBatch);
 router.delete('/material-orders/:id', deleteMaterialOrderBatch);
 router.post('/material-orders/clear', clearMaterialOrders);
 
 // MRP & Perishable Alerts
 router.get('/mrp/calculate', calculateMRP);
+router.post('/mrp/export-excel', exportMrpMatrixExcel);
 router.get('/perishable-alerts', getPerishableAlerts);
 
 // Purchase Orders

@@ -1332,12 +1332,21 @@ exports.createProductionOrder = async (req, res) => {
         const processedItems = [];
 
         for (const it of items) {
-            const recipe = await Recipe.findOne({
-                $or: [
-                    ...(it.recipeId ? [{ _id: it.recipeId }] : []),
-                    { productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' } }
-                ]
-            });
+            let recipe = null;
+            if (it.recipeId) {
+                recipe = await Recipe.findById(it.recipeId);
+            }
+            if (!recipe && buyerName && it.productName) {
+                recipe = await Recipe.findOne({
+                    buyerName: { $regex: `^${buyerName.trim()}$`, $options: 'i' },
+                    productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                });
+            }
+            if (!recipe && it.productName) {
+                recipe = await Recipe.findOne({
+                    productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                });
+            }
 
             if (!recipe) {
                 return res.status(400).json({ success: false, message: `Recipe not found for "${it.productName}"` });
@@ -1413,13 +1422,23 @@ exports.updateProductionOrder = async (req, res) => {
 
         if (items && Array.isArray(items) && items.length > 0) {
             const processedItems = [];
+            const effectiveBuyer = buyerName !== undefined ? buyerName : order.buyerName;
             for (const it of items) {
-                const recipe = await Recipe.findOne({
-                    $or: [
-                        ...(it.recipeId ? [{ _id: it.recipeId }] : []),
-                        { productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' } }
-                    ]
-                });
+                let recipe = null;
+                if (it.recipeId) {
+                    recipe = await Recipe.findById(it.recipeId);
+                }
+                if (!recipe && effectiveBuyer && it.productName) {
+                    recipe = await Recipe.findOne({
+                        buyerName: { $regex: `^${effectiveBuyer.trim()}$`, $options: 'i' },
+                        productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                    });
+                }
+                if (!recipe && it.productName) {
+                    recipe = await Recipe.findOne({
+                        productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                    });
+                }
 
                 if (!recipe) {
                     return res.status(400).json({ success: false, message: `Recipe not found for "${it.productName}"` });
@@ -1481,10 +1500,16 @@ exports.createBuyerOrder = async (req, res) => {
 
         for (const it of items) {
             let recipeId = it.recipeId || null;
-            if (!recipeId) {
-                const rec = await Recipe.findOne({
+            if (!recipeId && it.productName) {
+                let rec = await Recipe.findOne({
+                    buyerName: { $regex: `^${buyerName.trim()}$`, $options: 'i' },
                     productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
                 });
+                if (!rec) {
+                    rec = await Recipe.findOne({
+                        productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                    });
+                }
                 if (rec) recipeId = rec._id;
             }
             processedItems.push({
@@ -1543,16 +1568,23 @@ exports.updateBuyerOrder = async (req, res) => {
 
         if (items && Array.isArray(items) && items.length > 0) {
             const processedItems = [];
+            const effectiveBuyer = order.buyerName || '';
             for (const it of items) {
                 let recipeId = it.recipeId || null;
                 let rec = null;
                 if (recipeId) rec = await Recipe.findById(recipeId);
+                if (!rec && effectiveBuyer && it.productName) {
+                    rec = await Recipe.findOne({
+                        buyerName: { $regex: `^${effectiveBuyer.trim()}$`, $options: 'i' },
+                        productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
+                    });
+                }
                 if (!rec && it.productName) {
                     rec = await Recipe.findOne({
                         productName: { $regex: `^${it.productName.trim()}$`, $options: 'i' }
                     });
-                    if (rec) recipeId = rec._id;
                 }
+                if (rec) recipeId = rec._id;
                 const packSize = Number(it.packSize) || (rec && rec.packSizes && rec.packSizes[0]) || 1;
                 processedItems.push({
                     recipe: recipeId,
@@ -1586,11 +1618,89 @@ exports.deleteBuyerOrder = async (req, res) => {
 };
 
 // ==========================================
+// HELPER: AUTO-DELETE EXPIRED INCOMING POs
+// Rule: Delete after Date of Ordering + Lead Time + 1 Day
+// Example: Ordered Oct 13, Lead Time 4 -> Auto-Delete on Oct 18
+// ==========================================
+const cleanupExpiredMaterialOrders = async () => {
+    try {
+        const allMaterials = await RawMaterial.find();
+        const rmById = new Map();
+        const rmByName = new Map();
+        allMaterials.forEach(m => {
+            rmById.set(String(m._id), m);
+            if (m.name) rmByName.set(m.name.trim().toLowerCase(), m);
+        });
+
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        // 1. Clean up MaterialOrder documents (Incoming PO Batches)
+        const allIncoming = await MaterialOrder.find();
+        const expiredIds = [];
+
+        for (const ord of allIncoming) {
+            const rm = (ord.rawMaterial && rmById.get(String(ord.rawMaterial))) ||
+                       (ord.materialName && rmByName.get(ord.materialName.trim().toLowerCase()));
+            const leadTime = Number(ord.leadTimeDays || (rm && rm.leadTimeDays) || 1);
+            const rawDate = new Date(ord.orderDate || ord.createdAt || now);
+            const orderDayStart = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+            const autoDeleteDay = new Date(
+                orderDayStart.getFullYear(),
+                orderDayStart.getMonth(),
+                orderDayStart.getDate() + leadTime + 1
+            );
+
+            if (todayStart.getTime() >= autoDeleteDay.getTime()) {
+                expiredIds.push(ord._id);
+            }
+        }
+
+        if (expiredIds.length > 0) {
+            await MaterialOrder.deleteMany({ _id: { $in: expiredIds } });
+        }
+
+        // 2. Also clean up PurchaseOrder collection if any documents have expired
+        const allPos = await PurchaseOrder.find();
+        const expiredPoIds = [];
+        for (const po of allPos) {
+            let maxLeadTime = 1;
+            if (Array.isArray(po.items) && po.items.length > 0) {
+                po.items.forEach(it => {
+                    const rm = (it.rawMaterial && rmById.get(String(it.rawMaterial))) ||
+                               (it.materialName && rmByName.get(it.materialName.trim().toLowerCase()));
+                    const lt = Number(rm && rm.leadTimeDays ? rm.leadTimeDays : 1);
+                    if (lt > maxLeadTime) maxLeadTime = lt;
+                });
+            }
+            const rawPoDate = new Date(po.orderDate || po.createdAt || now);
+            const poDayStart = new Date(rawPoDate.getFullYear(), rawPoDate.getMonth(), rawPoDate.getDate());
+            const poAutoDeleteDay = new Date(
+                poDayStart.getFullYear(),
+                poDayStart.getMonth(),
+                poDayStart.getDate() + maxLeadTime + 1
+            );
+            if (todayStart.getTime() >= poAutoDeleteDay.getTime()) {
+                expiredPoIds.push(po._id);
+            }
+        }
+        if (expiredPoIds.length > 0) {
+            await PurchaseOrder.deleteMany({ _id: { $in: expiredPoIds } });
+        }
+    } catch (err) {
+        console.error('Auto-cleanup expired incoming POs error:', err);
+    }
+};
+
+// ==========================================
 // 7. TIME-PHASED MRP CALCULATION & PERISHABLE ALERTS
 // ==========================================
 
 exports.calculateMRP = async (req, res) => {
     try {
+        // First auto-delete any expired Incoming POs (orderDate + leadTime + 1 day <= today)
+        await cleanupExpiredMaterialOrders();
+
         const { orderIds, buyerOrderIds } = req.query;
         let orders = [];
         const hasOrderIdsParam = orderIds !== undefined;
@@ -1630,14 +1740,25 @@ exports.calculateMRP = async (req, res) => {
         // Fetch all raw materials
         const allMaterials = await RawMaterial.find({ isActive: true });
         const materialMap = new Map();
-        allMaterials.forEach(m => materialMap.set(String(m._id), m));
+        const materialByNameMap = new Map();
+        allMaterials.forEach(m => {
+            materialMap.set(String(m._id), m);
+            if (m.name) materialByNameMap.set(m.name.trim().toLowerCase(), m);
+        });
 
-        // Fetch all recipes for reliable lookup (handles unpopulated recipe refs and name matches)
+        // Fetch all recipes for reliable lookup (handles unpopulated recipe refs, buyer+product matches, and name matches)
         const allRecipes = await Recipe.find();
         const recipeMap = new Map();
+        const buyerProductRecipeMap = new Map();
         allRecipes.forEach(r => {
             recipeMap.set(String(r._id), r);
             recipeMap.set(r.productName.trim().toLowerCase(), r);
+            if (r.buyerName && r.productName) {
+                buyerProductRecipeMap.set(
+                    `${r.buyerName.trim().toLowerCase()}__${r.productName.trim().toLowerCase()}`,
+                    r
+                );
+            }
         });
 
         // Find active incoming material order batches sorted by date descending
@@ -1646,10 +1767,21 @@ exports.calculateMRP = async (req, res) => {
         // Map incoming batches by both rawMaterialId and materialName lowercase for persistent lookup
         const incomingMap = new Map();
         activeBatches.forEach(b => {
+            const rm = (b.rawMaterial && materialMap.get(String(b.rawMaterial))) ||
+                       (b.materialName && materialByNameMap.get(b.materialName.trim().toLowerCase()));
+            const leadTime = Number(b.leadTimeDays || (rm && rm.leadTimeDays) || 1);
+            const ordDate = new Date(b.orderDate);
+            const orderDayStart = new Date(ordDate.getFullYear(), ordDate.getMonth(), ordDate.getDate());
+            const estArrivalDate = new Date(orderDayStart.getFullYear(), orderDayStart.getMonth(), orderDayStart.getDate() + leadTime);
+            const autoDeleteDate = new Date(orderDayStart.getFullYear(), orderDayStart.getMonth(), orderDayStart.getDate() + leadTime + 1);
+
             const batchObj = {
                 _id: b._id,
                 orderQty: b.orderQty,
                 orderDate: b.orderDate,
+                leadTimeDays: leadTime,
+                estArrivalDate,
+                autoDeleteDate,
                 unit: b.unit,
                 vendor: b.vendor,
                 notes: b.notes
@@ -1682,6 +1814,11 @@ exports.calculateMRP = async (req, res) => {
                 let recipe = item.recipe;
                 if (!recipe || !recipe.ingredients) {
                     if (item.recipe) recipe = recipeMap.get(String(item.recipe._id || item.recipe));
+                    if (!recipe && order.buyerName && item.productName) {
+                        recipe = buyerProductRecipeMap.get(
+                            `${order.buyerName.trim().toLowerCase()}__${item.productName.trim().toLowerCase()}`
+                        );
+                    }
                     if (!recipe && item.productName) recipe = recipeMap.get(item.productName.trim().toLowerCase());
                 }
                 if (!recipe || !recipe.ingredients) continue;
@@ -1767,6 +1904,11 @@ exports.calculateMRP = async (req, res) => {
                 let recipe = item.recipe;
                 if (!recipe || !recipe.ingredients) {
                     if (item.recipe) recipe = recipeMap.get(String(item.recipe._id || item.recipe));
+                    if (!recipe && bo.buyerName && item.productName) {
+                        recipe = buyerProductRecipeMap.get(
+                            `${bo.buyerName.trim().toLowerCase()}__${item.productName.trim().toLowerCase()}`
+                        );
+                    }
                     if (!recipe && item.productName) recipe = recipeMap.get(item.productName.trim().toLowerCase());
                 }
                 if (!recipe || !recipe.ingredients) continue;
@@ -1878,16 +2020,11 @@ exports.calculateMRP = async (req, res) => {
             // Estimated Arrival Date (based on ordered quantity & latest order date)
             let estArrivalDate = null;
             if (entry.latestOrderDate) {
-                const orderTime = new Date(entry.latestOrderDate).getTime();
-                estArrivalDate = new Date(orderTime + (entry.leadTimeDays * 86400000));
+                const ordDate = new Date(entry.latestOrderDate);
+                const orderDayStart = new Date(ordDate.getFullYear(), ordDate.getMonth(), ordDate.getDate());
+                estArrivalDate = new Date(orderDayStart.getFullYear(), orderDayStart.getMonth(), orderDayStart.getDate() + entry.leadTimeDays);
             }
 
-            // Status determination:
-            // - If shortfall === 0: 'NOT REQUIRED'
-            // - If shortfall > 0:
-            //     - If incomingPipelineQty >= netShortfall: 'COMPLETE'
-            //     - Else if incomingPipelineQty > 0: 'PARTIAL'
-            //     - Else: 'DUE'
             let status = 'DUE';
             if (netShortfall === 0) {
                 status = 'NOT REQUIRED';
@@ -1937,12 +2074,103 @@ exports.calculateMRP = async (req, res) => {
     }
 };
 
+exports.exportMrpMatrixExcel = async (req, res) => {
+    try {
+        const { mainHeading, subHeadingLines, rows } = req.body;
+        if (!rows || !Array.isArray(rows)) {
+            return res.status(400).json({ success: false, message: 'Rows data is required for Excel export' });
+        }
+
+        const aoa = [];
+        const merges = [];
+
+        // Row 0: Main Heading
+        const titleText = mainHeading || 'Live Material Requirement & Shortage Matrix';
+        aoa.push([titleText, '', '', '']);
+        merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } });
+
+        // Additional detail lines for selected POs / Master Buyer Orders
+        if (Array.isArray(subHeadingLines) && subHeadingLines.length > 0) {
+            subHeadingLines.forEach((line) => {
+                const rowIdx = aoa.length;
+                aoa.push([line, '', '', '']);
+                merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 3 } });
+            });
+        }
+
+        // Blank separator row
+        aoa.push(['', '', '', '']);
+
+        // Table Header Row
+        aoa.push(['Material Name', 'Gross Required', 'Current Stock', 'Net Shortfall']);
+
+        // Data Rows
+        rows.forEach((r) => {
+            const unit = r.baseUnit ? ` ${r.baseUnit}` : '';
+            const grossVal =
+                r.grossRequired !== undefined && r.grossRequired !== ''
+                    ? r.grossRequired
+                    : r.totalGrossRequired !== undefined
+                    ? `${Number(r.totalGrossRequired.toFixed ? r.totalGrossRequired.toFixed(3) : r.totalGrossRequired)}${unit}`
+                    : '0';
+
+            const stockVal =
+                r.currentStockFormatted !== undefined && r.currentStockFormatted !== ''
+                    ? r.currentStockFormatted
+                    : r.currentStock !== undefined
+                    ? typeof r.currentStock === 'number'
+                        ? `${Number(r.currentStock.toFixed(3))}${unit}`
+                        : r.currentStock
+                    : '0';
+
+            const rawShortfall =
+                r.netShortfall !== undefined && r.netShortfall !== ''
+                    ? r.netShortfall
+                    : r.shortfallQuantity !== undefined
+                    ? Number(r.shortfallQuantity) > 0
+                        ? `-${Number(Number(r.shortfallQuantity).toFixed(3))}${unit}`
+                        : `0${unit}`
+                    : '0';
+
+            aoa.push([
+                r.materialName || '',
+                grossVal,
+                stockVal,
+                rawShortfall
+            ]);
+        });
+
+        const ws = xlsx.utils.aoa_to_sheet(aoa);
+        ws['!merges'] = merges;
+        ws['!cols'] = [
+            { wch: 36 },
+            { wch: 22 },
+            { wch: 22 },
+            { wch: 22 }
+        ];
+
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, 'Material Shortage Matrix');
+
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="Material_Shortage_Matrix.xlsx"');
+        return res.status(200).send(buffer);
+    } catch (err) {
+        console.error('Export MRP Matrix Excel Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 // ==========================================
 // MATERIAL INCOMING ORDER BATCHES (MULTI-BATCH)
 // ==========================================
 
 exports.getMaterialOrders = async (req, res) => {
     try {
+        // First auto-delete any expired Incoming POs (orderDate + leadTime + 1 day <= today)
+        await cleanupExpiredMaterialOrders();
+
         const { materialName, rawMaterialId } = req.query;
         let query = { status: 'ORDERED' };
         if (rawMaterialId) query.rawMaterial = rawMaterialId;
@@ -1954,10 +2182,12 @@ exports.getMaterialOrders = async (req, res) => {
 
         const augmented = orders.map(ord => {
             const doc = ord.toObject();
-            const leadTime = (doc.rawMaterial && doc.rawMaterial.leadTimeDays) ? doc.rawMaterial.leadTimeDays : 1;
-            const orderTime = new Date(doc.orderDate).getTime();
+            const leadTime = Number(doc.leadTimeDays || (doc.rawMaterial && doc.rawMaterial.leadTimeDays) || 1);
+            const ordDate = new Date(doc.orderDate);
+            const orderDayStart = new Date(ordDate.getFullYear(), ordDate.getMonth(), ordDate.getDate());
             doc.leadTimeDays = leadTime;
-            doc.estArrivalDate = new Date(orderTime + (leadTime * 86400000));
+            doc.estArrivalDate = new Date(orderDayStart.getFullYear(), orderDayStart.getMonth(), orderDayStart.getDate() + leadTime);
+            doc.autoDeleteDate = new Date(orderDayStart.getFullYear(), orderDayStart.getMonth(), orderDayStart.getDate() + leadTime + 1);
             doc.vendorName = doc.vendor || (doc.rawMaterial && doc.rawMaterial.preferredSupplier) || '—';
             return doc;
         });
@@ -1975,24 +2205,61 @@ exports.createMaterialOrderBatch = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Material name and valid order quantity are required' });
         }
 
-        let rmId = rawMaterialId || null;
-        if (!rmId) {
-            const rm = await RawMaterial.findOne({ name: { $regex: `^${materialName.trim()}$`, $options: 'i' } });
-            if (rm) rmId = rm._id;
+        let rm = null;
+        if (rawMaterialId) {
+            rm = await RawMaterial.findById(rawMaterialId);
         }
+        if (!rm) {
+            rm = await RawMaterial.findOne({ name: { $regex: `^${materialName.trim()}$`, $options: 'i' } });
+        }
+
+        const leadTime = Number(rm && rm.leadTimeDays ? rm.leadTimeDays : 1);
 
         const batch = await MaterialOrder.create({
             materialName: materialName.trim(),
-            rawMaterial: rmId,
+            rawMaterial: rm ? rm._id : null,
             orderQty: Number(orderQty),
             orderDate: orderDate ? new Date(orderDate) : new Date(),
-            unit: unit || 'kg',
+            leadTimeDays: leadTime,
+            unit: unit || (rm ? rm.baseUnit : 'kg'),
             vendor: vendor || '',
             notes: notes || '',
             status: 'ORDERED'
         });
 
+        await cleanupExpiredMaterialOrders();
+
         res.status(201).json({ success: true, message: 'Order batch recorded successfully', data: batch });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.updateMaterialOrderBatch = async (req, res) => {
+    try {
+        const { orderDate, orderQty, vendor, notes } = req.body;
+        const batch = await MaterialOrder.findById(req.params.id);
+        if (!batch) {
+            return res.status(404).json({ success: false, message: 'Order batch not found' });
+        }
+
+        if (orderDate) batch.orderDate = new Date(orderDate);
+        if (orderQty !== undefined && Number(orderQty) > 0) batch.orderQty = Number(orderQty);
+        if (vendor !== undefined) batch.vendor = vendor;
+        if (notes !== undefined) batch.notes = notes;
+
+        await batch.save();
+        await cleanupExpiredMaterialOrders();
+
+        const stillExists = await MaterialOrder.findById(batch._id);
+        res.status(200).json({
+            success: true,
+            autoDeleted: !stillExists,
+            message: stillExists
+                ? 'Order batch updated successfully'
+                : 'Order batch date exceeded (Order Date + Lead Time + 1 day) and was automatically deleted',
+            data: stillExists
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -2143,7 +2410,7 @@ exports.getPurchaseOrders = async (req, res) => {
 
 exports.createMaterialIssue = async (req, res) => {
     try {
-        const { productionOrderId, kitchenSupervisor, items, notes, buyerName, productName, batches } = req.body;
+        const { productionOrderId, kitchenSupervisor, items, notes, buyerName, productName, batches, issueDate } = req.body;
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ success: false, message: 'Material issue must have items' });
@@ -2151,6 +2418,7 @@ exports.createMaterialIssue = async (req, res) => {
 
         const autoIssueNumber = generate4to5DigitCode('ISS');
         const processedItems = [];
+        const parsedIssueDate = issueDate ? new Date(issueDate) : new Date();
 
         let resolvedBuyer = buyerName || '';
         let resolvedProduct = productName || '';
@@ -2232,6 +2500,7 @@ exports.createMaterialIssue = async (req, res) => {
             issueNumber: autoIssueNumber,
             productionOrder: productionOrderId || undefined,
             batches: numBatches,
+            issueDate: parsedIssueDate,
             kitchenSupervisor: kitchenSupervisor || '',
             buyerName: resolvedBuyer || 'General',
             productName: resolvedProduct || (processedItems[0]?.materialName ? `Recipe for ${processedItems[0].materialName}` : 'Recipe Issue'),
@@ -2249,7 +2518,7 @@ exports.createMaterialIssue = async (req, res) => {
 exports.getMaterialIssues = async (req, res) => {
     try {
         const issues = await MaterialIssue.find()
-            .sort({ createdAt: -1 })
+            .sort({ issueDate: -1, createdAt: -1 })
             .populate('productionOrder');
         res.status(200).json({ success: true, count: issues.length, data: issues });
     } catch (err) {

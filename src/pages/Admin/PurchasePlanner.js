@@ -21,7 +21,8 @@ import {
   Copy,
   ExternalLink,
   ListOrdered,
-  Search
+  Search,
+  Download
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL, CATEGORIES_URL } from '../../redux/Utils/constants';
@@ -33,6 +34,40 @@ const format3Decimals = (val) => {
   const num = Number(val);
   if (isNaN(num)) return '0';
   return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+};
+
+const computeAutoDeleteDateStr = (orderDateVal, leadTimeDaysVal) => {
+  if (!orderDateVal) return '—';
+  const d = new Date(orderDateVal);
+  if (isNaN(d.getTime())) return '—';
+  const orderDayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const lt =
+    leadTimeDaysVal !== null && leadTimeDaysVal !== undefined && !isNaN(Number(leadTimeDaysVal))
+      ? Math.max(0, Number(leadTimeDaysVal))
+      : 1;
+  const deleteDate = new Date(orderDayStart.getTime() + (lt + 1) * 86400000);
+  return deleteDate.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+
+const computeEstArrivalDateStr = (orderDateVal, leadTimeDaysVal) => {
+  if (!orderDateVal) return '—';
+  const d = new Date(orderDateVal);
+  if (isNaN(d.getTime())) return '—';
+  const orderDayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const lt =
+    leadTimeDaysVal !== null && leadTimeDaysVal !== undefined && !isNaN(Number(leadTimeDaysVal))
+      ? Math.max(0, Number(leadTimeDaysVal))
+      : 1;
+  const arrivalDate = new Date(orderDayStart.getTime() + lt * 86400000);
+  return arrivalDate.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
 };
 
 const PurchasePlanner = () => {
@@ -247,6 +282,47 @@ const PurchasePlanner = () => {
   };
 
   // ========================================================
+  // BUYER & RECIPE FILTERING HELPERS
+  // ========================================================
+  const allKnownBuyers = React.useMemo(() => {
+    const map = new Map();
+    (buyers || []).forEach((b) => {
+      const name = (b?.name || '').trim();
+      if (name && !map.has(name.toLowerCase())) {
+        map.set(name.toLowerCase(), { _id: b._id || name, name });
+      }
+    });
+    (recipes || []).forEach((r) => {
+      const name = (r?.buyerName || '').trim();
+      if (name && !map.has(name.toLowerCase())) {
+        map.set(name.toLowerCase(), { _id: `rec-buyer-${name}`, name });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [buyers, recipes]);
+
+  const getRecipesForBuyer = (buyerName) => {
+    if (!buyerName || !buyerName.trim()) return [];
+    const target = buyerName.trim().toLowerCase();
+    return recipes.filter((r) => (r.buyerName || '').trim().toLowerCase() === target);
+  };
+
+  const findRecipeForBuyerAndProduct = (buyerName, productName) => {
+    if (!productName) return null;
+    const pTarget = productName.trim().toLowerCase();
+    if (buyerName && buyerName.trim()) {
+      const bTarget = buyerName.trim().toLowerCase();
+      const exact = recipes.find(
+        (r) =>
+          (r.buyerName || '').trim().toLowerCase() === bTarget &&
+          (r.productName || '').trim().toLowerCase() === pTarget
+      );
+      if (exact) return exact;
+    }
+    return recipes.find((r) => (r.productName || '').trim().toLowerCase() === pTarget) || null;
+  };
+
+  // ========================================================
   // SECTION 1: MASTER COMPLETE BUYER ORDERS HANDLERS
   // ========================================================
   const handleOpenBuyerOrderModal = async () => {
@@ -279,9 +355,11 @@ const PurchasePlanner = () => {
     const updated = [...newBuyerOrder.items];
     updated[index][field] = value;
     if (field === 'productName') {
-      const rec = recipes.find((r) => r.productName === value);
+      const rec = findRecipeForBuyerAndProduct(newBuyerOrder.buyerName, value);
       if (rec && rec.packSizes && rec.packSizes.length > 0) {
         updated[index].packSize = rec.packSizes[0];
+      } else {
+        updated[index].packSize = '';
       }
     }
     setNewBuyerOrder({ ...newBuyerOrder, items: updated });
@@ -376,9 +454,11 @@ const PurchasePlanner = () => {
     const updated = [...editBuyerOrderData.items];
     updated[index][field] = value;
     if (field === 'productName') {
-      const rec = recipes.find((r) => r.productName === value);
+      const rec = findRecipeForBuyerAndProduct(editBuyerOrderData.buyerName, value);
       if (rec && rec.packSizes && rec.packSizes.length > 0) {
         updated[index].packSize = rec.packSizes[0];
+      } else {
+        updated[index].packSize = '';
       }
     }
     setEditBuyerOrderData({ ...editBuyerOrderData, items: updated });
@@ -452,7 +532,7 @@ const PurchasePlanner = () => {
 
   const handleScheduleFromBuyerOrder = (bo, item) => {
     const targetItem = item || bo.items[0] || {};
-    const rec = recipes.find((r) => r.productName === targetItem.productName);
+    const rec = findRecipeForBuyerAndProduct(bo.buyerName, targetItem.productName);
     const pSize = targetItem.packSize || (rec && rec.packSizes && rec.packSizes[0]) || '';
     setNewOrder({
       buyerName: bo.buyerName,
@@ -524,7 +604,7 @@ const PurchasePlanner = () => {
 
   const handleOpenEditOrder = (ord) => {
     const firstItem = ord.items && ord.items[0] ? ord.items[0] : {};
-    const rec = recipes.find((r) => r.productName === (firstItem.productName || ''));
+    const rec = findRecipeForBuyerAndProduct(ord.buyerName, firstItem.productName || '');
     const pSize = firstItem.packSize || (rec && rec.packSizes && rec.packSizes[0]) || '';
     setEditingOrder(ord);
     setEditFormData({
@@ -635,14 +715,10 @@ const PurchasePlanner = () => {
 
       const res = await apiConnector(`${INVENTORY_MRP_URL}/material-orders`, 'POST', payload);
       if (res.data?.success) {
-        toast.success(`Ordered ${newBatchInput.orderQty} ${activeMaterial.baseUnit} of ${activeMaterial.materialName}!`);
-        const newBatch = res.data.data;
-        if (newBatch && activeMaterial) {
-          setActiveMaterial((prev) => ({
-            ...prev,
-            incomingPipelineQty: (prev.incomingPipelineQty || 0) + Number(newBatch.orderQty),
-            orderedBatches: [newBatch, ...(prev.orderedBatches || [])]
-          }));
+        if (res.data?.deletedExpired) {
+          toast.info(res.data.message || 'Order batch exceeded lead time + 1 day and was auto-deleted');
+        } else {
+          toast.success(`Ordered ${newBatchInput.orderQty} ${activeMaterial.baseUnit} of ${activeMaterial.materialName}!`);
         }
         setNewBatchInput({
           orderQty: '',
@@ -650,10 +726,33 @@ const PurchasePlanner = () => {
           vendor: activeMaterial.preferredSupplier || '',
           notes: ''
         });
-        runMrpCalculation();
+        await runMrpCalculation();
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to record order batch');
+    }
+  };
+
+  const handleUpdateOrderBatchDate = async (batchId, newDate) => {
+    if (!batchId || !newDate) return;
+    try {
+      const res = await apiConnector(`${INVENTORY_MRP_URL}/material-orders/${batchId}`, 'PUT', {
+        orderDate: newDate
+      });
+      if (res.data?.success) {
+        if (res.data.deletedExpired) {
+          toast.info(res.data.message || 'Incoming PO expired (Order Date + Lead Time + 1 Day) and was auto-deleted');
+        } else {
+          toast.success('Order date updated!');
+        }
+        if (showActivePipelineModal) {
+          const pipeRes = await apiConnector(`${INVENTORY_MRP_URL}/material-orders`, 'GET');
+          if (pipeRes.data?.success) setAllPipelineOrders(pipeRes.data.data);
+        }
+        await runMrpCalculation();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update order date');
     }
   };
 
@@ -687,7 +786,83 @@ const PurchasePlanner = () => {
   };
 
   // ========================================================
-  // WHATSAPP PURCHASE ORDER GENERATION (NO INVENTORY MUTATION)
+  // DYNAMIC HEADING BUILDER FOR SELECTED POs / MASTER BUYER ORDERS / ALL
+  // ========================================================
+  const buildMatrixOrderHeading = () => {
+    const selectedBOs = buyerOrders.filter((bo) => selectedBuyerOrderIds.has(bo._id));
+    const selectedPOs = orders.filter((o) => selectedBatchIds.has(o._id));
+
+    const allBOsSelected = buyerOrders.length > 0 && selectedBOs.length === buyerOrders.length;
+    const allPOsSelected = orders.length > 0 && selectedPOs.length === orders.length;
+
+    let mainHeading = 'LIVE MATERIAL REQUIREMENT & SHORTAGE MATRIX';
+    const subHeadingLines = [];
+
+    if (allBOsSelected && allPOsSelected) {
+      mainHeading = `ALL MASTER BUYER ORDERS (${selectedBOs.length}) & ALL PLANNED POs (${selectedPOs.length}) — MATERIAL REQUIREMENT & SHORTAGE MATRIX`;
+    } else if (selectedBOs.length > 0 && selectedPOs.length === 0) {
+      if (allBOsSelected && selectedBOs.length > 1) {
+        mainHeading = `ALL MASTER BUYER ORDERS (${selectedBOs.length}) — MATERIAL REQUIREMENT & SHORTAGE MATRIX`;
+      } else if (selectedBOs.length === 1) {
+        const bo = selectedBOs[0];
+        const delivStr = bo.deliveryDate ? ` | Delivery: ${new Date(bo.deliveryDate).toLocaleDateString('en-IN')}` : '';
+        mainHeading = `MASTER BUYER ORDER: ${bo.orderNumber} — Buyer: ${bo.buyerName}${delivStr}`;
+      } else {
+        mainHeading = `SELECTED MASTER BUYER ORDERS (${selectedBOs.length}): ${selectedBOs
+          .map((bo) => `${bo.orderNumber} (${bo.buyerName})`)
+          .join(', ')}`;
+      }
+    } else if (selectedPOs.length > 0 && selectedBOs.length === 0) {
+      if (allPOsSelected && selectedPOs.length > 1) {
+        mainHeading = `ALL PLANNED PRODUCTION ORDERS / POs (${selectedPOs.length}) — MATERIAL REQUIREMENT & SHORTAGE MATRIX`;
+      } else if (selectedPOs.length === 1) {
+        const po = selectedPOs[0];
+        const dateStr = po.productionDate ? ` | Date: ${new Date(po.productionDate).toLocaleDateString('en-IN')}` : '';
+        const buyerStr = po.buyerName ? ` | Buyer: ${po.buyerName}` : '';
+        mainHeading = `PRODUCTION ORDER (PO): ${po.orderNumber}${buyerStr}${dateStr}`;
+      } else {
+        mainHeading = `SELECTED PRODUCTION ORDERS / POs (${selectedPOs.length}): ${selectedPOs
+          .map((po) => `${po.orderNumber}${po.buyerName ? ` (${po.buyerName})` : ''}`)
+          .join(', ')}`;
+      }
+    } else if (selectedBOs.length > 0 && selectedPOs.length > 0) {
+      mainHeading = `SELECTED ORDERS (${selectedBOs.length} Master Buyer Order(s) & ${selectedPOs.length} PO(s)) — MATERIAL REQUIREMENT & SHORTAGE MATRIX`;
+    }
+
+    selectedBOs.forEach((bo) => {
+      const itemsDesc = (bo.items || [])
+        .map((it) => {
+          const pSizeTxt = it.packSize
+            ? ` [${Number(it.packSize) >= 1 ? `${it.packSize}kg` : `${Math.round(Number(it.packSize) * 1000)}g`}]`
+            : '';
+          return `${it.productName}${pSizeTxt}: ${Number(it.targetPouches || 0).toLocaleString('en-IN')} pouches`;
+        })
+        .join(', ');
+      const delivTxt = bo.deliveryDate ? ` | Delivery: ${new Date(bo.deliveryDate).toLocaleDateString('en-IN')}` : '';
+      subHeadingLines.push(
+        `Master Buyer Order ${bo.orderNumber} (${bo.buyerName}${delivTxt}) -> ${itemsDesc}`
+      );
+    });
+
+    selectedPOs.forEach((po) => {
+      const itemsDesc = (po.items || [])
+        .map((it) => {
+          const pSizeTxt = it.packSize
+            ? ` [${Number(it.packSize) >= 1 ? `${it.packSize}kg` : `${Math.round(Number(it.packSize) * 1000)}g`}]`
+            : '';
+          return `${it.productName}${pSizeTxt}: ${Number(it.targetPouches || 0).toLocaleString('en-IN')} pouches (${it.batches} batches)`;
+        })
+        .join(', ');
+      const dateTxt = po.productionDate ? ` | Scheduled: ${new Date(po.productionDate).toLocaleDateString('en-IN')}` : '';
+      const buyerTxt = po.buyerName ? ` | Buyer: ${po.buyerName}` : '';
+      subHeadingLines.push(`PO ${po.orderNumber}${buyerTxt}${dateTxt} -> ${itemsDesc}`);
+    });
+
+    return { mainHeading, subHeadingLines };
+  };
+
+  // ========================================================
+  // EXCEL EXPORT & WHATSAPP SEND FOR MATERIAL SHORTAGE MATRIX
   // ========================================================
   const toggleSelectItem = (matName) => {
     const updated = new Set(selectedItems);
@@ -705,16 +880,76 @@ const PurchasePlanner = () => {
     setSelectedItems(new Set());
   };
 
-  const handleOpenWhatsAppModal = () => {
-    if (selectedItems.size === 0) {
-      toast.warning('Please select at least one material using the checkboxes to generate a WhatsApp PO');
+  const handleExportMatrixExcel = async () => {
+    if (!mrpData || mrpData.length === 0) {
+      toast.warning('No material requirement rows available to export');
       return;
     }
 
-    const itemsToInclude = mrpData.filter((r) => selectedItems.has(r.materialName));
+    const sourceRows =
+      selectedItems.size > 0
+        ? mrpData.filter((r) => selectedItems.has(r.materialName))
+        : mrpData;
+
+    const rowsToExport = sourceRows.map((r) => {
+      const unit = r.baseUnit ? ` ${r.baseUnit}` : '';
+      const shortfallVal = Number(r.shortfallQuantity || 0);
+      return {
+        ...r,
+        materialName: r.materialName || '',
+        grossRequired: `${format3Decimals(r.totalGrossRequired)}${unit}`,
+        currentStock: `${format3Decimals(r.currentStock)}${unit}`,
+        netShortfall: shortfallVal > 0 ? `-${format3Decimals(shortfallVal)}${unit}` : `0${unit}`
+      };
+    });
+
+    const { mainHeading, subHeadingLines } = buildMatrixOrderHeading();
+
+    try {
+      const response = await fetch(`${INVENTORY_MRP_URL}/mrp/export-excel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mainHeading,
+          subHeadingLines,
+          rows: rowsToExport
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate Excel file');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateTag = new Date().toISOString().split('T')[0];
+      a.download = `Material_Requirement_Shortage_Matrix_${dateTag}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Material Requirement & Shortage Matrix exported to Excel!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to export Excel sheet');
+    }
+  };
+
+  const handleOpenWhatsAppModal = () => {
+    if (!mrpData || mrpData.length === 0) {
+      toast.warning('No material requirement data available to send on WhatsApp');
+      return;
+    }
+
+    const itemsToInclude =
+      selectedItems.size > 0
+        ? mrpData.filter((r) => selectedItems.has(r.materialName))
+        : mrpData;
 
     if (itemsToInclude.length === 0) {
-      toast.warning('No items selected to generate a WhatsApp PO');
+      toast.warning('No items available to send on WhatsApp');
       return;
     }
 
@@ -724,19 +959,33 @@ const PurchasePlanner = () => {
       year: 'numeric'
     });
 
-    let msg = `*PURCHASE ORDER REQUEST*\n📅 *Date:* ${todayStr}\n\n`;
-    msg += `*Please arrange the following raw materials:*\n`;
+    const { mainHeading, subHeadingLines } = buildMatrixOrderHeading();
+
+    let msg = `*${mainHeading}*\n`;
+    if (subHeadingLines.length > 0) {
+      subHeadingLines.forEach((line) => {
+        msg += `📋 ${line}\n`;
+      });
+    }
+    msg += `📅 *Date:* ${todayStr}\n\n`;
+    msg += `*Material Name | Gross Required | Current Stock | Net Shortfall*\n`;
+    msg += `----------------------------------------\n`;
 
     itemsToInclude.forEach((it, idx) => {
-      const orderQty = it.suggestedOrderQty > 0 ? it.suggestedOrderQty : it.shortfallQuantity;
-      const packText = it.packSize > 1 ? ` (${it.bagCount} packs × ${it.packSize} ${it.baseUnit})` : '';
-      msg += `\n*${idx + 1}. ${it.materialName}*\n`;
-      msg += `   • *Quantity:* ${format3Decimals(orderQty)} ${it.baseUnit}${packText}\n`;
-      if (it.preferredSupplier) msg += `   • *Vendor:* ${it.preferredSupplier}\n`;
-      if (it.orderByDate) msg += `   • *Required by:* ${new Date(it.orderByDate).toLocaleDateString()}\n`;
-    });
+      const unit = it.baseUnit || '';
+      const grossStr = `${format3Decimals(it.totalGrossRequired)} ${unit}`.trim();
+      const stockStr = `${format3Decimals(it.currentStock)} ${unit}`.trim();
+      const shortfallVal = Number(it.shortfallQuantity || 0);
+      const shortfallStr =
+        shortfallVal > 0
+          ? `-${format3Decimals(shortfallVal)} ${unit}`.trim()
+          : `0 ${unit}`.trim();
 
-    msg += `\n_Please confirm stock availability, rates, and dispatch schedule._`;
+      msg += `*${idx + 1}. ${it.materialName}*\n`;
+      msg += `   • Gross Required: *${grossStr}*\n`;
+      msg += `   • Current Stock: *${stockStr}*\n`;
+      msg += `   • Net Shortfall: *${shortfallStr}*\n`;
+    });
 
     setWhatsAppMessage(msg);
     setShowWhatsAppModal(true);
@@ -785,7 +1034,7 @@ const PurchasePlanner = () => {
 
   const handleCopyWhatsAppMessage = () => {
     navigator.clipboard.writeText(whatsAppMessage);
-    toast.success('WhatsApp PO message copied to clipboard!');
+    toast.success('WhatsApp message copied to clipboard!');
   };
 
   // Helper batch calculation previews
@@ -799,9 +1048,9 @@ const PurchasePlanner = () => {
   };
 
   const activeBuyerOrder = newOrder.buyerOrderId ? buyerOrders.find((bo) => bo._id === newOrder.buyerOrderId) : null;
-  const selectedRecipeObj = recipes.find((r) => r.productName === newOrder.productName);
+  const selectedRecipeObj = findRecipeForBuyerAndProduct(newOrder.buyerName, newOrder.productName);
   const selectedNominalYield = getNominalYield(selectedRecipeObj, newOrder.packSize);
-  const editRecipeObj = recipes.find((r) => r.productName === editFormData.productName);
+  const editRecipeObj = findRecipeForBuyerAndProduct(editFormData.buyerName, editFormData.productName);
   const editNominalYield = getNominalYield(editRecipeObj, editFormData.packSize);
 
   const totalShortages = mrpData.filter((r) => r.isShortage && r.status === 'DUE').length;
@@ -1217,11 +1466,11 @@ const PurchasePlanner = () => {
               Evaluating requirements for {selectedBuyerOrderIds.size > 0 ? `${selectedBuyerOrderIds.size} buyer order(s)` : ''}
               {selectedBuyerOrderIds.size > 0 && selectedBatchIds.size > 0 ? ' and ' : ''}
               {selectedBatchIds.size > 0 ? `${selectedBatchIds.size} batch(es)` : ''}
-              {selectedBuyerOrderIds.size === 0 && selectedBatchIds.size === 0 ? '0 selected orders' : ''} &bull; Click Incoming PO to view batch history &bull; Generate PO sends WhatsApp message
+              {selectedBuyerOrderIds.size === 0 && selectedBatchIds.size === 0 ? '0 selected orders' : ''} &bull; Click Incoming PO to view/set dates &bull; Export as Excel or Send on WA
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={selectAllShortages}
               className="text-xs text-gray-400 hover:text-white underline"
@@ -1233,15 +1482,28 @@ const PurchasePlanner = () => {
                 onClick={clearSelectedShortages}
                 className="text-xs text-rose-400 hover:text-rose-300 underline"
               >
-                Clear Selection
+                Clear Selection ({selectedItems.size})
               </button>
             )}
             <button
+              type="button"
+              onClick={handleExportMatrixExcel}
+              disabled={mrpData.length === 0}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500 text-black font-semibold hover:bg-cyan-400 disabled:opacity-40 text-xs shadow-lg shadow-cyan-500/20 transition-all"
+              title="Export Material Name, Gross Required, Current Stock, and Net Shortfall to Excel with selected PO / Buyer Order heading"
+            >
+              <Download className="w-4 h-4" />
+              Export as Excel {selectedItems.size > 0 ? `(${selectedItems.size})` : '(All)'}
+            </button>
+            <button
+              type="button"
               onClick={handleOpenWhatsAppModal}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 text-black font-semibold hover:bg-emerald-400 text-xs shadow-lg shadow-emerald-500/20"
+              disabled={mrpData.length === 0}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 text-black font-semibold hover:bg-emerald-400 disabled:opacity-40 text-xs shadow-lg shadow-emerald-500/20 transition-all"
+              title="Send Material Name, Gross Required, Current Stock, and Net Shortfall on WhatsApp with selected PO / Buyer Order heading"
             >
               <MessageSquare className="w-4 h-4" />
-              Send PO via WhatsApp ({selectedItems.size} selected)
+              Send on WA {selectedItems.size > 0 ? `(${selectedItems.size} selected)` : '(All)'}
             </button>
           </div>
         </div>
@@ -1390,7 +1652,7 @@ const PurchasePlanner = () => {
                         </td>
 
                         <td className="py-4 px-3 text-center text-gray-300 font-mono">
-                          {row.leadTimeDays || 1} days
+                          {row.leadTimeDays !== null && row.leadTimeDays !== undefined ? row.leadTimeDays : 1} days
                         </td>
                         <td className="py-4 px-3 text-center font-mono">
                           {row.estArrivalDate ? (
@@ -1483,7 +1745,7 @@ const PurchasePlanner = () => {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto shadow-2xl"
+              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
                 <div className="flex items-center gap-2.5">
@@ -1493,7 +1755,7 @@ const PurchasePlanner = () => {
                       Incoming PO Batches &bull; {activeMaterial.materialName}
                     </h3>
                     <p className="text-xs text-gray-400">
-                      Track separate ordered quantities across different dates
+                      Lead Time: <strong className="text-cyan-300">{activeMaterial.leadTimeDays ?? 1} day(s)</strong> &bull; Incoming POs auto-delete on <strong className="text-amber-300">Order Date + Lead Time + 1 Day</strong>
                     </p>
                   </div>
                 </div>
@@ -1537,7 +1799,7 @@ const PurchasePlanner = () => {
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
-                    Ordered Batches History (Latest Date First)
+                    Ordered Batches History (Choose / Change Order Date Anytime)
                   </span>
                   {activeMaterial.orderedBatches?.length > 0 && (
                     <button
@@ -1552,37 +1814,53 @@ const PurchasePlanner = () => {
 
                 {(!activeMaterial.orderedBatches || activeMaterial.orderedBatches.length === 0) ? (
                   <div className="border border-dashed border-white/15 rounded-xl p-6 text-center text-gray-400 text-xs">
-                    No orders placed yet for this material. Use the form below to log an order batch with quantity and date.
+                    No active incoming POs for this material. Use the form below to log an order batch with quantity and date.
                   </div>
                 ) : (
-                  <div className="border border-white/10 rounded-xl overflow-hidden">
+                  <div className="border border-white/10 rounded-xl overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-white/5 border-b border-white/10 text-gray-400">
                         <tr>
                           <th className="py-2.5 px-3">#</th>
-                          <th className="py-2.5 px-3">Order Date</th>
+                          <th className="py-2.5 px-3">Date of Ordering</th>
                           <th className="py-2.5 px-3 text-right">Ordered Qty</th>
-                          <th className="py-2.5 px-3 text-center">Est. Arrival Date</th>
+                          <th className="py-2.5 px-3 text-center">Est. Arrival</th>
+                          <th className="py-2.5 px-3 text-center text-amber-300">Auto-Delete On</th>
                           <th className="py-2.5 px-3">Vendor / Notes</th>
                           <th className="py-2.5 px-3 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
                         {activeMaterial.orderedBatches.map((batch, idx) => {
-                          const estDate = new Date(
-                            new Date(batch.orderDate).getTime() + (Number(activeMaterial.leadTimeDays || 1) * 86400000)
-                          ).toLocaleDateString();
+                          const ltDays =
+                            batch.leadTimeDays !== null && batch.leadTimeDays !== undefined
+                              ? batch.leadTimeDays
+                              : activeMaterial.leadTimeDays ?? 1;
+                          const estDate = computeEstArrivalDateStr(batch.orderDate, ltDays);
+                          const autoDelDate = computeAutoDeleteDateStr(batch.orderDate, ltDays);
+                          const dateInputVal = batch.orderDate
+                            ? new Date(batch.orderDate).toISOString().split('T')[0]
+                            : '';
                           return (
                             <tr key={batch._id || idx} className="hover:bg-white/5">
                               <td className="py-2.5 px-3 text-gray-400 font-mono">{idx + 1}</td>
-                              <td className="py-2.5 px-3 text-white font-medium">
-                                {new Date(batch.orderDate).toLocaleDateString()}
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="date"
+                                  value={dateInputVal}
+                                  onChange={(e) => handleUpdateOrderBatchDate(batch._id, e.target.value)}
+                                  className="bg-black border border-white/15 hover:border-cyan-400/60 focus:border-cyan-400 rounded-lg px-2 py-1 text-xs text-white font-mono focus:outline-none"
+                                  title="Change Date of Ordering"
+                                />
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono font-bold text-cyan-400">
                                 {format3Decimals(batch.orderQty)} {batch.unit || activeMaterial.baseUnit}
                               </td>
                               <td className="py-2.5 px-3 text-center text-gray-300 font-mono">
                                 {estDate}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono text-amber-300 font-semibold">
+                                {autoDelDate}
                               </td>
                               <td className="py-2.5 px-3 text-gray-400 italic">
                                 {batch.vendor || batch.notes || '—'}
@@ -1608,9 +1886,23 @@ const PurchasePlanner = () => {
 
               {/* Add Order Batch Form */}
               <form onSubmit={handleAddOrderBatch} className="border border-white/10 rounded-xl p-4 bg-black/40 space-y-3">
-                <div className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                  Add Order Batch (e.g. 20, 30, or 50 {activeMaterial.baseUnit})
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                    Add Order Batch (e.g. 20, 30, or 50 {activeMaterial.baseUnit})
+                  </div>
+                  {newBatchInput.orderDate && (
+                    <div className="text-[11px] font-mono text-gray-400">
+                      Est. Arrival:{' '}
+                      <span className="text-cyan-300 font-semibold">
+                        {computeEstArrivalDateStr(newBatchInput.orderDate, activeMaterial.leadTimeDays)}
+                      </span>{' '}
+                      &bull; Auto-Deletes On:{' '}
+                      <span className="text-amber-300 font-semibold">
+                        {computeAutoDeleteDateStr(newBatchInput.orderDate, activeMaterial.leadTimeDays)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1695,7 +1987,7 @@ const PurchasePlanner = () => {
               <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-lg font-bold">Generate WhatsApp Purchase Order</h3>
+                  <h3 className="text-lg font-bold">Send Material Requirement & Shortage Matrix on WhatsApp</h3>
                 </div>
                 <button
                   onClick={() => setShowWhatsAppModal(false)}
@@ -1707,7 +1999,7 @@ const PurchasePlanner = () => {
 
               <div className="space-y-4">
                 <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 text-xs text-emerald-300">
-                  ℹ️ This generates a WhatsApp PO message for vendor communication without updating system inventory or incoming PO balances. Incoming orders must be tracked via the status options.
+                  ℹ️ Includes the selected PO / Master Buyer Order / All heading details along with Material Name, Gross Required, Current Stock, and Net Shortfall.
                 </div>
 
                 <div>
@@ -1808,7 +2100,11 @@ const PurchasePlanner = () => {
                         type="button"
                         onClick={() => {
                           setIsCustomBuyer(!isCustomBuyer);
-                          setNewBuyerOrder({ ...newBuyerOrder, buyerName: '' });
+                          setNewBuyerOrder({
+                            ...newBuyerOrder,
+                            buyerName: '',
+                            items: [{ productName: '', packSize: '', targetPouches: '' }]
+                          });
                         }}
                         className="text-[11px] text-primary hover:underline font-medium"
                       >
@@ -1823,15 +2119,23 @@ const PurchasePlanner = () => {
                         onChange={(e) => {
                           if (e.target.value === '__NEW__') {
                             setIsCustomBuyer(true);
-                            setNewBuyerOrder({ ...newBuyerOrder, buyerName: '' });
+                            setNewBuyerOrder({
+                              ...newBuyerOrder,
+                              buyerName: '',
+                              items: [{ productName: '', packSize: '', targetPouches: '' }]
+                            });
                           } else {
-                            setNewBuyerOrder({ ...newBuyerOrder, buyerName: e.target.value });
+                            setNewBuyerOrder({
+                              ...newBuyerOrder,
+                              buyerName: e.target.value,
+                              items: [{ productName: '', packSize: '', targetPouches: '' }]
+                            });
                           }
                         }}
                         className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
                       >
-                        <option value="">-- Select Buyer from Database ({buyers.length} available) --</option>
-                        {buyers.map((b) => (
+                        <option value="">-- Select Buyer ({allKnownBuyers.length} available) --</option>
+                        {allKnownBuyers.map((b) => (
                           <option key={b._id} value={b.name}>
                             {b.name}
                           </option>
@@ -1842,9 +2146,15 @@ const PurchasePlanner = () => {
                       <input
                         type="text"
                         required
-                        placeholder="Type new buyer name..."
+                        placeholder="Type buyer name..."
                         value={newBuyerOrder.buyerName}
-                        onChange={(e) => setNewBuyerOrder({ ...newBuyerOrder, buyerName: e.target.value })}
+                        onChange={(e) =>
+                          setNewBuyerOrder({
+                            ...newBuyerOrder,
+                            buyerName: e.target.value,
+                            items: [{ productName: '', packSize: '', targetPouches: '' }]
+                          })
+                        }
                         className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
                         autoFocus
                       />
@@ -1864,13 +2174,21 @@ const PurchasePlanner = () => {
                 {/* Dynamic Product Items */}
                 <div className="border border-white/10 rounded-xl p-3 bg-black/40">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                      Ordered Products (Multiple Items under Single Order)
-                    </label>
+                    <div>
+                      <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block">
+                        Ordered Products (Multiple Items under Single Order)
+                      </label>
+                      <span className="text-[11px] text-gray-400">
+                        {newBuyerOrder.buyerName.trim()
+                          ? `Showing recipes for buyer: ${newBuyerOrder.buyerName.trim()} (${getRecipesForBuyer(newBuyerOrder.buyerName).length} found)`
+                          : 'Select a buyer above to view their recipes'}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={handleAddBuyerOrderItem}
-                      className="text-xs text-primary hover:underline font-semibold flex items-center gap-1"
+                      disabled={!newBuyerOrder.buyerName.trim()}
+                      className="text-xs text-primary hover:underline font-semibold flex items-center gap-1 disabled:opacity-40"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add Product
@@ -1879,19 +2197,27 @@ const PurchasePlanner = () => {
 
                   <div className="space-y-2.5">
                     {newBuyerOrder.items.map((item, idx) => {
-                      const rec = recipes.find((r) => r.productName === item.productName);
+                      const buyerRecipes = getRecipesForBuyer(newBuyerOrder.buyerName);
+                      const rec = findRecipeForBuyerAndProduct(newBuyerOrder.buyerName, item.productName);
                       const hasPackSizes = rec && rec.packSizes && rec.packSizes.length > 0;
                       return (
                         <div key={idx} className="flex items-center gap-2">
                           <div className="flex-1">
                             <select
                               required
+                              disabled={!newBuyerOrder.buyerName.trim()}
                               value={item.productName}
                               onChange={(e) => handleBuyerOrderItemChange(idx, 'productName', e.target.value)}
-                              className="w-full bg-gray-950 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary"
+                              className="w-full bg-gray-950 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary disabled:opacity-50"
                             >
-                              <option value="">-- Choose Recipe / Product --</option>
-                              {recipes.map((r) => (
+                              <option value="">
+                                {!newBuyerOrder.buyerName.trim()
+                                  ? '-- Select Buyer First --'
+                                  : buyerRecipes.length === 0
+                                  ? `-- No Recipes Found for ${newBuyerOrder.buyerName.trim()} --`
+                                  : '-- Choose Recipe / Product --'}
+                              </option>
+                              {buyerRecipes.map((r) => (
                                 <option key={r._id} value={r.productName}>
                                   {r.productName}
                                 </option>
@@ -2015,14 +2341,31 @@ const PurchasePlanner = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Buyer Name *</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      placeholder="Buyer Name"
                       value={editBuyerOrderData.buyerName}
-                      onChange={(e) => setEditBuyerOrderData({ ...editBuyerOrderData, buyerName: e.target.value })}
+                      onChange={(e) =>
+                        setEditBuyerOrderData({
+                          ...editBuyerOrderData,
+                          buyerName: e.target.value,
+                          items: [{ productName: '', packSize: '', targetPouches: '' }]
+                        })
+                      }
                       className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
+                    >
+                      <option value="">-- Select Buyer --</option>
+                      {allKnownBuyers.map((b) => (
+                        <option key={b._id} value={b.name}>
+                          {b.name}
+                        </option>
+                      ))}
+                      {editBuyerOrderData.buyerName &&
+                        !allKnownBuyers.some(
+                          (b) => b.name.toLowerCase() === editBuyerOrderData.buyerName.trim().toLowerCase()
+                        ) && (
+                          <option value={editBuyerOrderData.buyerName}>{editBuyerOrderData.buyerName}</option>
+                        )}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">Target Delivery Date</label>
@@ -2038,13 +2381,21 @@ const PurchasePlanner = () => {
                 {/* Dynamic Product Items */}
                 <div className="border border-white/10 rounded-xl p-3 bg-black/40">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                      Ordered Products (Multiple Items under Single Order)
-                    </label>
+                    <div>
+                      <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block">
+                        Ordered Products (Multiple Items under Single Order)
+                      </label>
+                      <span className="text-[11px] text-gray-400">
+                        {editBuyerOrderData.buyerName.trim()
+                          ? `Showing recipes for buyer: ${editBuyerOrderData.buyerName.trim()} (${getRecipesForBuyer(editBuyerOrderData.buyerName).length} found)`
+                          : 'Select a buyer above to view their recipes'}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={handleAddEditBuyerOrderItem}
-                      className="text-xs text-primary hover:underline font-semibold flex items-center gap-1"
+                      disabled={!editBuyerOrderData.buyerName.trim()}
+                      className="text-xs text-primary hover:underline font-semibold flex items-center gap-1 disabled:opacity-40"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add Product
@@ -2053,23 +2404,35 @@ const PurchasePlanner = () => {
 
                   <div className="space-y-2.5">
                     {editBuyerOrderData.items.map((item, idx) => {
-                      const rec = recipes.find((r) => r.productName === item.productName);
+                      const buyerRecipes = getRecipesForBuyer(editBuyerOrderData.buyerName);
+                      const rec = findRecipeForBuyerAndProduct(editBuyerOrderData.buyerName, item.productName);
                       const hasPackSizes = rec && rec.packSizes && rec.packSizes.length > 0;
                       return (
                         <div key={idx} className="flex items-center gap-2">
                           <div className="flex-1">
                             <select
                               required
+                              disabled={!editBuyerOrderData.buyerName.trim()}
                               value={item.productName}
                               onChange={(e) => handleEditBuyerOrderItemChange(idx, 'productName', e.target.value)}
-                              className="w-full bg-gray-950 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary"
+                              className="w-full bg-gray-950 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary disabled:opacity-50"
                             >
-                              <option value="">-- Choose Recipe / Product --</option>
-                              {recipes.map((r) => (
+                              <option value="">
+                                {!editBuyerOrderData.buyerName.trim()
+                                  ? '-- Select Buyer First --'
+                                  : buyerRecipes.length === 0
+                                  ? `-- No Recipes Found for ${editBuyerOrderData.buyerName.trim()} --`
+                                  : '-- Choose Recipe / Product --'}
+                              </option>
+                              {buyerRecipes.map((r) => (
                                 <option key={r._id} value={r.productName}>
                                   {r.productName}
                                 </option>
                               ))}
+                              {item.productName &&
+                                !buyerRecipes.some((r) => r.productName === item.productName) && (
+                                  <option value={item.productName}>{item.productName}</option>
+                                )}
                             </select>
                           </div>
                           {hasPackSizes ? (
@@ -2545,7 +2908,7 @@ const PurchasePlanner = () => {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-4xl p-6 max-h-[90vh] flex flex-col shadow-2xl"
+              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-5xl p-6 max-h-[90vh] flex flex-col shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
                 <div className="flex items-center gap-2.5">
@@ -2553,7 +2916,7 @@ const PurchasePlanner = () => {
                   <div>
                     <h3 className="text-lg font-bold text-white">Active Pipeline Orders (All Ingredients)</h3>
                     <p className="text-xs text-gray-400">
-                      All purchase orders currently in progress with estimated arrival dates and vendors
+                      All incoming purchase orders in progress &bull; Auto-deletes automatically on <strong className="text-amber-300">Order Date + Lead Time + 1 Day</strong>
                     </p>
                   </div>
                 </div>
@@ -2603,9 +2966,10 @@ const PurchasePlanner = () => {
                       <tr>
                         <th className="py-3 px-3.5">#</th>
                         <th className="py-3 px-3.5">Material Name</th>
-                        <th className="py-3 px-3 text-center">Order Date</th>
+                        <th className="py-3 px-3 text-center">Date of Ordering</th>
                         <th className="py-3 px-3 text-right font-bold text-cyan-400">Order Qty</th>
-                        <th className="py-3 px-3 text-center text-cyan-300 font-medium">Est. Arrival Date</th>
+                        <th className="py-3 px-3 text-center text-cyan-300 font-medium">Est. Arrival</th>
+                        <th className="py-3 px-3 text-center text-amber-300 font-medium">Auto-Delete On</th>
                         <th className="py-3 px-3.5">Vendor Name</th>
                         <th className="py-3 px-3.5">Notes</th>
                         <th className="py-3 px-3 text-center">Action</th>
@@ -2624,23 +2988,36 @@ const PurchasePlanner = () => {
                           );
                         })
                         .map((ord, idx) => {
-                          const estDate = ord.estArrivalDate
-                            ? new Date(ord.estArrivalDate).toLocaleDateString()
-                            : new Date(new Date(ord.orderDate).getTime() + (Number(ord.leadTimeDays || 1) * 86400000)).toLocaleDateString();
+                          const ltDays =
+                            ord.leadTimeDays !== null && ord.leadTimeDays !== undefined ? ord.leadTimeDays : 1;
+                          const estDate = computeEstArrivalDateStr(ord.orderDate, ltDays);
+                          const autoDelDate = computeAutoDeleteDateStr(ord.orderDate, ltDays);
                           const vendorDisplay = ord.vendorName || ord.vendor || '—';
+                          const dateInputVal = ord.orderDate
+                            ? new Date(ord.orderDate).toISOString().split('T')[0]
+                            : '';
 
                           return (
                             <tr key={ord._id || idx} className="hover:bg-white/5 transition-colors">
                               <td className="py-3 px-3.5 text-gray-500 font-mono">{idx + 1}</td>
                               <td className="py-3 px-3.5 font-medium text-white">{ord.materialName}</td>
-                              <td className="py-3 px-3 text-center font-mono text-gray-300">
-                                {new Date(ord.orderDate).toLocaleDateString()}
+                              <td className="py-3 px-3 text-center">
+                                <input
+                                  type="date"
+                                  value={dateInputVal}
+                                  onChange={(e) => handleUpdateOrderBatchDate(ord._id, e.target.value)}
+                                  className="bg-black border border-white/15 hover:border-cyan-400/60 focus:border-cyan-400 rounded-lg px-2 py-1 text-xs text-white font-mono focus:outline-none"
+                                  title="Change Date of Ordering"
+                                />
                               </td>
                               <td className="py-3 px-3 text-right font-mono font-bold text-cyan-400">
                                 +{format3Decimals(ord.orderQty)} {ord.unit || 'kg'}
                               </td>
                               <td className="py-3 px-3 text-center font-mono text-cyan-300">
                                 {estDate}
+                              </td>
+                              <td className="py-3 px-3 text-center font-mono text-amber-300 font-semibold">
+                                {autoDelDate}
                               </td>
                               <td className="py-3 px-3.5 text-gray-300">{vendorDisplay}</td>
                               <td className="py-3 px-3.5 text-gray-400 italic text-[11px] max-w-[150px] truncate">

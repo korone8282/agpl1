@@ -39,6 +39,7 @@ const MaterialIssue = () => {
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
   const [noOfBatches, setNoOfBatches] = useState('1');
+  const [issueDate, setIssueDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [issueItems, setIssueItems] = useState([]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
@@ -313,6 +314,7 @@ const MaterialIssue = () => {
         productionOrderId: selectedOrderId || null,
         recipeId: activeRecipe ? activeRecipe._id : null,
         batches: bCount,
+        issueDate: issueDate || new Date().toISOString().split('T')[0],
         buyerName: activeRecipe?.buyerName || activeOrder?.buyerName || activeOrder?.items?.[0]?.recipe?.buyerName || 'General',
         productName: activeRecipe?.productName || activeOrder?.items?.[0]?.productName || 'Recipe Issue',
         kitchenSupervisor: `Batch: ${bCount}`,
@@ -371,9 +373,9 @@ const MaterialIssue = () => {
       {/* Issue Material Form */}
       <div className="bg-secondary/15 border border-white/10 rounded-2xl p-6 lg:p-8 mb-10 backdrop-blur-sm">
         <form onSubmit={handleConfirmIssue} className="space-y-6">
-          {/* Step 1: Mode Switcher (Select Recipe vs Planned Production Order) */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
-            <div className="flex items-center gap-2">
+          {/* Step 1: Mode Switcher (Left Top: Issue From | Right Top: Issued On) */}
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-gray-400">Issue From:</span>
               <button
                 type="button"
@@ -401,38 +403,54 @@ const MaterialIssue = () => {
               </button>
             </div>
 
-            {/* If Planned Production Order: Date Filter Buttons (Today, Tomorrow, All) */}
-            {issueMode === 'ORDER' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-400 font-medium mr-1">Date:</span>
-                {[
-                  { id: 'TODAY', label: 'Today' },
-                  { id: 'TOMORROW', label: 'Tomorrow' },
-                  { id: 'ALL', label: 'All Orders' }
-                ].map((df) => {
-                  const count = getOrderCount(df.id);
-                  return (
-                    <button
-                      key={df.id}
-                      type="button"
-                      onClick={() => {
-                        setOrderDateFilter(df.id);
-                        setSelectedOrderId('');
-                        setActiveOrder(null);
-                        setIssueItems([]);
-                      }}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                        orderDateFilter === df.id
-                          ? 'bg-primary/20 border border-primary text-primary font-semibold'
-                          : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      {df.label} <span className="font-mono text-[11px] opacity-80">({count})</span>
-                    </button>
-                  );
-                })}
+            {/* Right Top of Box: Issued On Date Picker (+ Order Filter if in ORDER mode) */}
+            <div className="flex flex-wrap items-center gap-4 ml-auto">
+              {issueMode === 'ORDER' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-400 font-medium mr-1">Filter POs:</span>
+                  {[
+                    { id: 'TODAY', label: 'Today' },
+                    { id: 'TOMORROW', label: 'Tomorrow' },
+                    { id: 'ALL', label: 'All Orders' }
+                  ].map((df) => {
+                    const count = getOrderCount(df.id);
+                    return (
+                      <button
+                        key={df.id}
+                        type="button"
+                        onClick={() => {
+                          setOrderDateFilter(df.id);
+                          setSelectedOrderId('');
+                          setActiveOrder(null);
+                          setIssueItems([]);
+                        }}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          orderDateFilter === df.id
+                            ? 'bg-primary/20 border border-primary text-primary font-semibold'
+                            : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {df.label} <span className="font-mono text-[11px] opacity-80">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-gray-400 flex items-center gap-1.5 whitespace-nowrap">
+                  <Calendar className="w-3.5 h-3.5 text-primary" />
+                  Issued On:
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={issueDate}
+                  onChange={(e) => setIssueDate(e.target.value)}
+                  className="bg-black border border-white/15 rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-primary"
+                />
               </div>
-            )}
+            </div>
           </div>
 
           {/* Step 2: Form Controls */}
