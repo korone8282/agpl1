@@ -1,6 +1,74 @@
 require("dotenv").config();
 const Data = require('../models/dataModel');
 
+// Helper: parse any date string ("YYYY-MM-DD", "DD-MM-YYYY", day number, or Date) into Noon UTC (12:00:00.000Z)
+// so it never shifts to the previous or next day across UTC / IST / US timezones.
+function parseCalendarDate(input, fallbackMonth) {
+    const now = new Date();
+    const defaultYear = 2026;
+    const defaultMonth = Number(fallbackMonth) || (now.getMonth() + 1);
+
+    if (!input) {
+        return {
+            year: defaultYear,
+            month: defaultMonth,
+            day: now.getDate()
+        };
+    }
+
+    const str = String(input).trim();
+    // Match YYYY-MM-DD
+    const ymd = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (ymd) {
+        return {
+            year: Number(ymd[1]),
+            month: Number(ymd[2]),
+            day: Number(ymd[3])
+        };
+    }
+
+    // Match DD-MM-YYYY or DD/MM/YYYY
+    const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (dmy) {
+        return {
+            year: Number(dmy[3]),
+            month: Number(dmy[2]),
+            day: Number(dmy[1])
+        };
+    }
+
+    // Plain day-of-month number (e.g. "17")
+    if (/^\d{1,2}$/.test(str)) {
+        return {
+            year: defaultYear,
+            month: defaultMonth,
+            day: Number(str)
+        };
+    }
+
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+        return {
+            year: parsed.getUTCFullYear(),
+            month: parsed.getUTCMonth() + 1,
+            day: parsed.getUTCDate()
+        };
+    }
+
+    return {
+        year: defaultYear,
+        month: defaultMonth,
+        day: now.getDate()
+    };
+}
+
+function getDayBoundsUTC(year, month, day) {
+    const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+    const noon = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+    return { start, end, noon };
+}
+
 exports.createData = async(req,res) => {
 try {
 
@@ -8,7 +76,9 @@ try {
 
     const dataItems = req.body;
     const section = string.split("_")[0];
-    const newdate = new Date(string.split("_")[1]);
+    const rawDatePart = string.split("_").slice(1).join("_");
+    const { year, month, day } = parseCalendarDate(rawDatePart);
+    const { start, end, noon: newdate } = getDayBoundsUTC(year, month, day);
 
      if(!dataItems.length){
        return res.status(400).json({
@@ -17,7 +87,7 @@ try {
      }
 
      const existData = await Data.find({
-        createdAt:newdate,
+        createdAt: { $gte: start, $lte: end },
         sectionMain:section,
         dayTime:dayTime
     });
@@ -54,11 +124,9 @@ exports.readData = async(req,res) => {
     try {
     
         const {date,month} = req.params;
-
-        const start = new Date(`2026-${month}-${date}`);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(`2026-${month}-${date}`);
-        end.setHours(23, 59, 59, 999);
+        const parsed = parseCalendarDate(date, month);
+        const targetMonth = Number(month) || parsed.month;
+        const { start, end } = getDayBoundsUTC(parsed.year || 2026, targetMonth, parsed.day);
 
         const existData = await Data.find({createdAt:{
             $gte:start,
@@ -119,18 +187,17 @@ exports.readBuyerData = async(req,res) => {
         const {start,end,buyer} = req.body;
 
         if(!start||!end||!buyer){
-            res.status(400).json({
+            return res.status(400).json({
                 success:false,
                 data:"no data found"
     
             })
          }
     
-
-        const startDate = new Date(start);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(end);
-        endDate.setHours(23, 59, 59, 999);
+        const sParsed = parseCalendarDate(start);
+        const eParsed = parseCalendarDate(end);
+        const startDate = getDayBoundsUTC(sParsed.year, sParsed.month, sParsed.day).start;
+        const endDate = getDayBoundsUTC(eParsed.year, eParsed.month, eParsed.day).end;
 
         const existData = await Data.find({createdAt:{
             $gte:startDate,
@@ -162,11 +229,9 @@ exports.readMonthlyData = async(req,res) => {
                 const days = [31,29,31,30,31,30,31,31,30,31,30,31];
 
                 const {month} = req.params;
-        
-                const startDate = new Date(`2026-${month}-01`);
-                startDate.setHours(0, 0, 0, 0);
-                const endDate = new Date(`2026-${month}-${days[month-1]}`);
-                endDate.setHours(23, 59, 59, 999);
+                const m = Number(month);
+                const startDate = new Date(Date.UTC(2026, m - 1, 1, 0, 0, 0, 0));
+                const endDate = new Date(Date.UTC(2026, m - 1, days[m - 1], 23, 59, 59, 999));
 
                 const existData = await Data.find({createdAt:{
                     $gte:startDate,
@@ -198,10 +263,10 @@ exports.readDvN = async(req,res) => {
 
                         const {start,end} = req.body;
                   
-                        const startDate = new Date(start);
-                        startDate.setHours(0, 0, 0, 0);
-                        const endDate = new Date(end);
-                        endDate.setHours(23, 59, 59, 999);
+                        const sParsed = parseCalendarDate(start);
+                        const eParsed = parseCalendarDate(end);
+                        const startDate = getDayBoundsUTC(sParsed.year, sParsed.month, sParsed.day).start;
+                        const endDate = getDayBoundsUTC(eParsed.year, eParsed.month, eParsed.day).end;
                 
                         const existData = await Data.find({createdAt:{
                             $gte:startDate,
@@ -232,10 +297,8 @@ exports.readKvF = async(req,res) => {
 
                                 const {datey} = req.body;
 
-                                const startDate = new Date(datey);
-                                startDate.setHours(0, 0, 0, 0);
-                                const endDate = new Date(datey);
-                                endDate.setHours(23, 59, 59, 999);
+                                const parsed = parseCalendarDate(datey);
+                                const { start: startDate, end: endDate } = getDayBoundsUTC(parsed.year, parsed.month, parsed.day);
 
                                 const existData = await Data.find({createdAt:{
                                     $gte:startDate,
@@ -267,10 +330,10 @@ exports.ProductData = async(req,res) => {
 
                         const {start,end,product} = req.body;
 
-                        const startDate = new Date(start);
-                        startDate.setHours(0, 0, 0, 0);
-                        const endDate = new Date(end);
-                        endDate.setHours(23, 59, 59, 999);
+                        const sParsed = parseCalendarDate(start);
+                        const eParsed = parseCalendarDate(end);
+                        const startDate = getDayBoundsUTC(sParsed.year, sParsed.month, sParsed.day).start;
+                        const endDate = getDayBoundsUTC(eParsed.year, eParsed.month, eParsed.day).end;
 
                         const existData = await Data.find({
                         createdAt:{

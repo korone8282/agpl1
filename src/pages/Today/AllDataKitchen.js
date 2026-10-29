@@ -10,7 +10,19 @@ import Loader from '../../components/Loader'
 import { Sun, Moon, CheckCheck, Trash2, CirclePlus } from "lucide-react";
 import { Button } from "../../components/Buttons";
 import { Input } from "../../components/Input";
-import { setDate} from '../../redux/Slices/dateSlice';
+import { setDate, setMonth } from '../../redux/Slices/dateSlice';
+
+const getFormattedDateValue = (dateState) => {
+  const raw = dateState?.date;
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
+    return raw.trim();
+  }
+  const now = new Date();
+  const year = 2026;
+  const m = Number(dateState?.month) || (now.getMonth() + 1);
+  const d = Number(raw) > 0 && Number(raw) <= 31 ? Number(raw) : now.getDate();
+  return `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
 
 const AllDataKitchen = () => {
 
@@ -98,8 +110,8 @@ const AllDataKitchen = () => {
     });
     
    try {
-
-    await apiConnector(`${DATA_URL}/Kitchen_${date.date}/${dayArray[+!isDayShift]}`,"POST",initalData[val],{Authorization: `Bearer ${userinfo.token}`});
+    const effectiveDate = getFormattedDateValue(date);
+    await apiConnector(`${DATA_URL}/Kitchen_${effectiveDate}/${dayArray[+!isDayShift]}`,"POST",initalData[val],{Authorization: `Bearer ${userinfo.token}`});
 
     dispatch(emptyData(val));
 
@@ -182,9 +194,15 @@ const AllDataKitchen = () => {
               <span className="text-xs text-zinc-400 font-mono uppercase">Date:</span>
               <input
                 type="date"
-                value={date.date}
+                value={getFormattedDateValue(date)}
                 name="date"
-                onChange={(e) => dispatch(setDate(e.target.value))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  dispatch(setDate(val));
+                  if (val && val.includes('-')) {
+                    dispatch(setMonth(Number(val.split('-')[1])));
+                  }
+                }}
                 className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer"
               />
             </div>

@@ -32,6 +32,10 @@ const DataLog = () => {
   ];
 
   const currentMonthData = months[(data.month || 1) - 1] || months[0];
+  const selectedDayNum =
+    typeof data.date === 'string' && data.date.includes('-')
+      ? Number(data.date.split('-')[2])
+      : Number(data.date);
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -94,7 +98,7 @@ const DataLog = () => {
             className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:border-primary/40 px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer flex items-center gap-2"
           >
             <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Date: {data.date || "Day"}</span>
+            <span>Date: {selectedDayNum || "Day"}</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </Button>
         </PopoverTrigger>
@@ -108,7 +112,7 @@ const DataLog = () => {
                 key={day}
                 variant="ghost"
                 className={`w-8 h-8 p-0 text-xs font-mono rounded-lg transition-colors ${
-                  data.date === day
+                  selectedDayNum === day
                     ? "bg-primary text-black font-bold"
                     : "text-zinc-300 hover:bg-white/10 hover:text-white"
                 }`}

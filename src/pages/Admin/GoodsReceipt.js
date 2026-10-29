@@ -24,6 +24,15 @@ const format3Decimals = (val) => {
   return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
 };
 
+const getLocalDateStr = (d = new Date()) => {
+  const dateObj = d instanceof Date ? d : new Date(d);
+  if (isNaN(dateObj.getTime())) return '';
+  const yyyy = dateObj.getFullYear();
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const GoodsReceipt = () => {
   const navigate = useNavigate();
   const [materials, setMaterials] = useState([]);
@@ -40,6 +49,7 @@ const GoodsReceipt = () => {
     rate: '',
     lotNumber: '',
     expiryDate: '',
+    receivedDate: '',
     vendor: '',
     reason: '',
     grnNumber: ''
@@ -54,7 +64,7 @@ const GoodsReceipt = () => {
     grnNumber: '',
     vendorInvoiceNumber: '',
     vendorName: '',
-    receivedDate: new Date().toISOString().split('T')[0],
+    receivedDate: getLocalDateStr(),
     items: [
       { rawMaterialId: '', quantityReceived: '', purchaseRate: '', lotNumber: '', expiryDate: '' }
     ]
@@ -125,7 +135,7 @@ const GoodsReceipt = () => {
           grnNumber: '',
           vendorInvoiceNumber: '',
           vendorName: '',
-          receivedDate: new Date().toISOString().split('T')[0],
+          receivedDate: getLocalDateStr(),
           items: [
             { rawMaterialId: '', quantityReceived: '', purchaseRate: '', lotNumber: '', expiryDate: '' }
           ]
@@ -146,7 +156,8 @@ const GoodsReceipt = () => {
       quantity: entry.quantity !== undefined ? entry.quantity : '',
       rate: entry.rate !== undefined ? entry.rate : '',
       lotNumber: entry.lotNumber || '',
-      expiryDate: entry.expiryDate ? new Date(entry.expiryDate).toISOString().split('T')[0] : '',
+      expiryDate: entry.expiryDate ? getLocalDateStr(entry.expiryDate) : '',
+      receivedDate: entry.createdAt ? getLocalDateStr(entry.createdAt) : '',
       vendor: entry.vendor || '',
       reason: entry.reason || '',
       grnNumber: entry.grnNumber || ''
@@ -628,7 +639,16 @@ const GoodsReceipt = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Date Received</label>
+                  <input
+                    type="date"
+                    value={editForm.receivedDate}
+                    onChange={(e) => setEditForm({ ...editForm, receivedDate: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">Expiry Date</label>
                   <input

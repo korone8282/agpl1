@@ -12,45 +12,104 @@ const KitchenVariance = require('../models/kitchenVarianceModel');
 
 const stopWords = new Set([
   'raw', 'material', 'materials', 'stock', 'pouch', 'pouches', 'plan', 'plans', 'order', 'orders',
-  'show', 'list', 'what', 'whats', 'how', 'much', 'many', 'status', 'created', 'produced', 'cooked',
-  'made', 'today', 'tomorrow', 'yesterday', 'week', 'month', 'remaining', 'left', 'yield', 'container',
-  'containers', 'manifest', 'manifests', 'recipe', 'recipes', 'bom'
+  'show', 'list', 'what', 'whats', 'wht', 'how', 'much', 'many', 'status', 'created', 'produced', 'cooked',
+  'made', 'today', 'tomorrow', 'yesterday', 'yesterdays', 'week', 'weeks', 'month', 'months', 'day', 'days',
+  'remaining', 'left', 'yield', 'container', 'containers', 'manifest', 'manifests', 'recipe', 'recipes', 'bom',
+  'total', 'worker', 'workers', 'count', 'packed', 'filled', 'dispatched', 'costing', 'cost', 'costs',
+  'last', 'past', 'previous', 'this', 'for', 'the', 'was', 'were', 'are', 'in', 'of', 'on', 'from', 'to',
+  'jan', 'january', 'feb', 'february', 'mar', 'march', 'apr', 'april', 'may', 'jun', 'june',
+  'jul', 'july', 'aug', 'august', 'sep', 'sept', 'september', 'oct', 'october', 'nov', 'november', 'dec', 'december',
+  'shift', 'shifts', 'kitchen', 'filling', 'dispatch', 'data', 'tell', 'ask', 'like', 'stuff'
 ]);
 
-// Helper: fuzzy search product name in list
+// Helper: fuzzy search product name & buyer in list (e.g. "rgg butter garlic rice", "butter garlic")
 function findBestProductMatch(query, products) {
   const q = query.toLowerCase();
-  // Direct inclusion
-  let matched = products.find(p => p.name.length > 3 && q.includes(p.name.toLowerCase()));
+
+  // 1. Check if both buyer AND product name appear in query
+  let buyerAndNameMatch = products.find(
+    p =>
+      p.name &&
+      p.name.length > 3 &&
+      q.includes(p.name.toLowerCase()) &&
+      p.buyer &&
+      q.includes(p.buyer.toLowerCase())
+  );
+  if (buyerAndNameMatch) return buyerAndNameMatch;
+
+  // 2. Direct product name inclusion
+  let matched = products.find(p => p.name && p.name.length > 3 && q.includes(p.name.toLowerCase()));
   if (matched) return matched;
 
-  // Key token matching without stop-words (e.g. "butter garlic", "basmati", "ancient grain")
-  const tokens = q.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length > 2 && !stopWords.has(t));
+  // 3. Key token matching without stop-words (e.g. "rgg butter garlic rice", "basmati", "ancient grain")
+  const tokens = q.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t) && !/^\d+$/.test(t));
   if (tokens.length === 0) return null;
 
   let bestScore = 0;
   let bestProd = null;
 
   for (const prod of products) {
-    const pTokens = prod.name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length > 2);
-    let score = 0;
+    const pTokens = (prod.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length >= 2);
+    const bTokens = (prod.buyer || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length >= 2);
+    let nameScore = 0;
+    let buyerScore = 0;
+
     for (const t of tokens) {
-      if (pTokens.some(pt => pt.includes(t) || t.includes(pt))) {
-        score += 1;
+      if (pTokens.some(pt => pt === t || (t.length > 3 && (pt.includes(t) || t.includes(pt))))) {
+        nameScore += 2;
+      }
+      if (bTokens.some(bt => bt === t)) {
+        buyerScore += 1.5;
       }
     }
-    if (score > bestScore) {
-      bestScore = score;
+
+    const totalScore = nameScore > 0 ? nameScore + buyerScore : 0;
+    if (totalScore > bestScore) {
+      bestScore = totalScore;
       bestProd = prod;
     }
   }
 
-  return bestScore >= 1 ? bestProd : null;
+  return bestScore >= 2 ? bestProd : null;
 }
 
-// Helper: parse date ranges
+// Helper: extract explicit buyer filter if mentioned in query (e.g. "RGG", "HLA")
+function findBuyerMatch(query, products) {
+  const qTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const distinctBuyers = [...new Set(products.map(p => (p.buyer || '').trim()).filter(Boolean))];
+  for (const buyer of distinctBuyers) {
+    const bLower = buyer.toLowerCase();
+    if (qTokens.includes(bLower) || (bLower.length > 3 && query.toLowerCase().includes(bLower))) {
+      return buyer;
+    }
+  }
+  return null;
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const MONTH_PATTERNS = [
+  { idx: 0, regex: /\bjan(?:uary)?\b/i },
+  { idx: 1, regex: /\bfeb(?:ruary)?\b/i },
+  { idx: 2, regex: /\bmar(?:ch)?\b/i },
+  { idx: 3, regex: /\bapr(?:il)?\b/i },
+  { idx: 4, regex: /\b(?:in\s+may|for\s+may|may\s+month|may\s+202\d)\b/i },
+  { idx: 5, regex: /\bjun(?:e)?\b/i },
+  { idx: 6, regex: /\bjul(?:y)?\b/i },
+  { idx: 7, regex: /\baug(?:ust)?\b/i },
+  { idx: 8, regex: /\bsep(?:t(?:ember)?)?\b/i },
+  { idx: 9, regex: /\boct(?:ober)?\b/i },
+  { idx: 10, regex: /\bnov(?:ember)?\b/i },
+  { idx: 11, regex: /\bdec(?:ember)?\b/i }
+];
+
+// Helper: parse date ranges (supports today, yesterday, last N days, last week, named months like Sept, specific dates)
 function parseTimeframe(text) {
   const now = new Date();
+  const currentYear = 2026;
   const lower = text.toLowerCase();
 
   if (lower.includes('tomorrow')) {
@@ -59,61 +118,115 @@ function parseTimeframe(text) {
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setHours(23, 59, 59, 999);
-    return { label: 'Tomorrow', start, end, isTomorrow: true };
+    return { label: 'Tomorrow', start, end, isTomorrow: true, hasExplicitTimeframe: true };
   }
 
   if (lower.includes('today')) {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    return { label: 'Today', start, end, isToday: true };
+    const start = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+    return { label: 'Today', start, end, isToday: true, hasExplicitTimeframe: true };
   }
 
   if (lower.includes('yesterday')) {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 1);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    return { label: 'Yesterday', start, end };
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const start = new Date(Date.UTC(yest.getFullYear(), yest.getMonth(), yest.getDate(), 0, 0, 0, 0));
+    const end = new Date(Date.UTC(yest.getFullYear(), yest.getMonth(), yest.getDate(), 23, 59, 59, 999));
+    const dLabel = `${yest.getDate()} ${MONTH_NAMES[yest.getMonth()].slice(0, 3)} ${yest.getFullYear()}`;
+    return { label: `Yesterday (${dLabel})`, start, end, isYesterday: true, hasExplicitTimeframe: true };
   }
 
-  if (lower.includes('last week') || lower.includes('past week') || lower.includes('last 7 days')) {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 7);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    return { label: 'Last 7 Days', start, end };
+  // Dynamic "last N days" / "past N days" (e.g. "last 4 days", "past 10 days")
+  const nDaysMatch = lower.match(/\b(?:last|past|previous|in\s+last)\s+(\d+)\s+days?\b/i);
+  if (nDaysMatch) {
+    const n = Math.max(1, parseInt(nDaysMatch[1], 10));
+    const startDay = new Date(now);
+    startDay.setDate(startDay.getDate() - n);
+    const start = new Date(Date.UTC(startDay.getFullYear(), startDay.getMonth(), startDay.getDate(), 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+    return { label: `Last ${n} Days`, start, end, hasExplicitTimeframe: true };
+  }
+
+  if (lower.includes('last week') || lower.includes('past week') || lower.includes('previous week')) {
+    const startDay = new Date(now);
+    startDay.setDate(startDay.getDate() - 7);
+    const start = new Date(Date.UTC(startDay.getFullYear(), startDay.getMonth(), startDay.getDate(), 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+    return { label: 'Last Week (Past 7 Days)', start, end, hasExplicitTimeframe: true };
   }
 
   if (lower.includes('this week')) {
-    const start = new Date(now);
-    const day = start.getDay() || 7;
-    start.setDate(start.getDate() - day + 1);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    return { label: 'This Week', start, end };
+    const startDay = new Date(now);
+    const day = startDay.getDay() || 7;
+    startDay.setDate(startDay.getDate() - day + 1);
+    const start = new Date(Date.UTC(startDay.getFullYear(), startDay.getMonth(), startDay.getDate(), 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+    return { label: 'This Week', start, end, hasExplicitTimeframe: true };
   }
 
   if (lower.includes('this month')) {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    return { label: 'This Month', start, end };
+    const start = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
+    return { label: `This Month (${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()})`, start, end, monthIndex: now.getMonth(), hasExplicitTimeframe: true };
   }
 
-  if (lower.includes('last month')) {
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    return { label: 'Last Month', start, end };
+  if (lower.includes('last month') || lower.includes('previous month')) {
+    const m = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
+    return { label: `Last Month (${MONTH_NAMES[m]} ${y})`, start, end, monthIndex: m, hasExplicitTimeframe: true };
+  }
+
+  // Specific ISO date YYYY-MM-DD
+  const isoMatch = lower.match(/\b(202\d)-(\d{1,2})-(\d{1,2})\b/);
+  if (isoMatch) {
+    const y = Number(isoMatch[1]);
+    const m = Number(isoMatch[2]) - 1;
+    const d = Number(isoMatch[3]);
+    const start = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+    return { label: `${d} ${MONTH_NAMES[m] || ''} ${y}`, start, end, hasExplicitTimeframe: true };
+  }
+
+  // Specific date with month name (e.g. "17th oct", "17 oct", "oct 17")
+  const specificDayMonth =
+    lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i) ||
+    lower.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+
+  if (specificDayMonth) {
+    const isDayFirst = /^\d/.test(specificDayMonth[1]);
+    const dayNum = parseInt(isDayFirst ? specificDayMonth[1] : specificDayMonth[2], 10);
+    const mToken = (isDayFirst ? specificDayMonth[2] : specificDayMonth[1]).toLowerCase();
+    const mIdx = MONTH_NAMES.findIndex(mn => mn.toLowerCase().startsWith(mToken.slice(0, 3)));
+    if (mIdx !== -1 && dayNum >= 1 && dayNum <= 31) {
+      const start = new Date(Date.UTC(currentYear, mIdx, dayNum, 0, 0, 0, 0));
+      const end = new Date(Date.UTC(currentYear, mIdx, dayNum, 23, 59, 59, 999));
+      return { label: `${dayNum} ${MONTH_NAMES[mIdx]} ${currentYear}`, start, end, hasExplicitTimeframe: true };
+    }
+  }
+
+  // Specific Month by Name (e.g. "sept month", "for september", "in october", "aug")
+  for (const mp of MONTH_PATTERNS) {
+    if (mp.regex.test(lower)) {
+      const yearMatch = lower.match(/\b(202\d)\b/);
+      const y = yearMatch ? Number(yearMatch[1]) : currentYear;
+      const start = new Date(Date.UTC(y, mp.idx, 1, 0, 0, 0, 0));
+      const end = new Date(Date.UTC(y, mp.idx + 1, 0, 23, 59, 59, 999));
+      return {
+        label: `${MONTH_NAMES[mp.idx]} ${y}`,
+        start,
+        end,
+        monthIndex: mp.idx,
+        hasExplicitTimeframe: true
+      };
+    }
   }
 
   // Default past 30 days
   const defaultStart = new Date(now);
   defaultStart.setDate(defaultStart.getDate() - 30);
-  return { label: 'Recent', start: defaultStart, end: now };
+  return { label: 'Past 30 Days', start: defaultStart, end: now, hasExplicitTimeframe: false };
 }
 
 // Number and quantity formatting engine
@@ -1264,72 +1377,441 @@ exports.chatWithAi = async (req, res) => {
       }
     }
 
-    // 3. PRODUCTION CREATED / YIELD (KITCHEN & FILLING DATA)
+    // 3A. COSTING ANALYSIS (YESTERDAY'S COSTING / DATE OR MONTH COSTING)
     else if (
+      qLower.includes('costing') ||
+      qLower.includes('cost per pouch') ||
+      qLower.includes('labour cost') ||
+      qLower.includes('labor cost') ||
+      qLower.includes('worker cost') ||
+      qLower.includes('shift cost') ||
+      qLower.includes('production cost') ||
+      (qLower.includes('cost') && !qLower.includes('raw material') && (timeframe.hasExplicitTimeframe || qLower.includes('yesterday') || qLower.includes('today') || qLower.includes('month') || qLower.includes('week')))
+    ) {
+      intent = 'COSTING_ANALYSIS';
+      const matchedBuyer = findBuyerMatch(qLower, allProducts);
+      let startDate = timeframe.start;
+      let endDate = timeframe.end;
+      let effectiveLabel = timeframe.label;
+      let usedFallbackDate = false;
+
+      let docs = await Data.find({
+        createdAt: { $gte: startDate, $lte: endDate }
+      }).sort({ createdAt: 1 });
+
+      // If no records exist for the requested date (e.g. Yesterday had no shift logged), fallback to the latest recorded day
+      if (docs.length === 0) {
+        const latestDoc = await Data.findOne({}).sort({ createdAt: -1 });
+        if (latestDoc && latestDoc.createdAt) {
+          const d = new Date(latestDoc.createdAt);
+          const fStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+          const fEnd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
+          docs = await Data.find({ createdAt: { $gte: fStart, $lte: fEnd } }).sort({ createdAt: 1 });
+          usedFallbackDate = true;
+          effectiveLabel = `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()].slice(0, 3)} ${d.getUTCFullYear()}`;
+        }
+      }
+
+      // Build shift & product costing rows (same exact formula as Costing.js)
+      const shiftMeta = new Map();
+      const rowMap = new Map();
+
+      const getPackSizeKgLocal = (val) => {
+        const n = Number(val) || 0;
+        if (n <= 0) return 0.25;
+        if (n > 5) return n / 1000;
+        return n;
+      };
+
+      const getMeta = (dKey, shift) => {
+        const k = `${dKey}|||${shift}`;
+        if (!shiftMeta.has(k)) {
+          shiftMeta.set(k, {
+            dateKey: dKey,
+            shift,
+            kitchenWorkers: null,
+            fillingWorkers: null,
+            dispatchWorkers: null,
+            pouchesProduced: 0
+          });
+        }
+        return shiftMeta.get(k);
+      };
+
+      const getRow = (dKey, buyerName, productName, shift) => {
+        const k = `${dKey}|||${buyerName}|||${productName}|||${shift}`;
+        if (!rowMap.has(k)) {
+          rowMap.set(k, {
+            dateKey: dKey,
+            buyerName: buyerName || 'General',
+            productName: productName || 'Unknown',
+            shift,
+            productionQty: 0,
+            pouchesProduced: 0,
+            wastagePouches: 0,
+            wastageKg: 0,
+            filledPouchWeightKg: 0,
+            pouchPacked: 0
+          });
+        }
+        return rowMap.get(k);
+      };
+
+      docs.forEach(doc => {
+        const list = doc.dataList || [];
+        if (!list.length) return;
+        const dKey = doc.createdAt ? new Date(doc.createdAt).toISOString().slice(0, 10) : 'Unknown';
+        const shift = String(doc.dayTime || 'Day').trim().toLowerCase() === 'night' ? 'Night' : 'Day';
+        const meta = getMeta(dKey, shift);
+        const first = list[0];
+        const sec = doc.sectionMain;
+
+        if (sec === 'Kitchen') {
+          if (meta.kitchenWorkers === null) meta.kitchenWorkers = Number(first.workersQuantity) || 0;
+          list.forEach(it => {
+            const r = getRow(dKey, it.buyerName, it.productName, shift);
+            r.productionQty += (Number(it.yield) || 0) * (Number(it.batchQuantity) || 0);
+          });
+        } else if (sec === 'Filling') {
+          if (meta.fillingWorkers === null) meta.fillingWorkers = Number(first.workersQuantity) || 0;
+          list.forEach(it => {
+            const r = getRow(dKey, it.buyerName, it.productName, shift);
+            const pouches = Number(it.pouchQuantity) || 0;
+            const ps = getPackSizeKgLocal(it.packSize);
+            r.pouchesProduced += pouches;
+            meta.pouchesProduced += pouches;
+            r.wastagePouches += Number(it.empty) || 0;
+            r.wastageKg += Number(it.filled) || 0;
+            r.filledPouchWeightKg += pouches * (ps + 0.005);
+          });
+        }
+      });
+
+      docs.forEach(doc => {
+        const list = doc.dataList || [];
+        if (!list.length) return;
+        const dKey = doc.createdAt ? new Date(doc.createdAt).toISOString().slice(0, 10) : 'Unknown';
+        const shift = String(doc.dayTime || 'Day').trim().toLowerCase() === 'night' ? 'Night' : 'Day';
+        const meta = getMeta(dKey, shift);
+        const first = list[0];
+        if (doc.sectionMain === 'Dispatch') {
+          if (meta.dispatchWorkers === null) meta.dispatchWorkers = Number(first.workersQuantity) || 0;
+          list.forEach(it => {
+            const k = `${dKey}|||${it.buyerName || 'General'}|||${it.productName || 'Unknown'}|||${shift}`;
+            if (rowMap.has(k)) {
+              rowMap.get(k).pouchPacked += Number(it.pouchPacked) || 0;
+            }
+          });
+        }
+      });
+
+      let costingRows = Array.from(rowMap.values()).map(r => {
+        const meta = getMeta(r.dateKey, r.shift);
+        const kWorkers = meta.kitchenWorkers ?? 0;
+        const fWorkers = meta.fillingWorkers ?? 0;
+        const dWorkers = meta.dispatchWorkers ?? 0;
+        const kCost = kWorkers * 900;
+        const fCost = fWorkers * 900;
+        const dCost = dWorkers * 900;
+        const costPerPouch = meta.pouchesProduced > 0 ? (kCost + fCost) / meta.pouchesProduced : 0;
+        const prodQtyKg = r.filledPouchWeightKg + r.wastageKg;
+        const variance = r.productionQty - prodQtyKg;
+        return {
+          ...r,
+          kitchenWorkers: kWorkers,
+          fillingWorkers: fWorkers,
+          dispatchWorkers: dWorkers,
+          kitchenCost: kCost,
+          fillingCost: fCost,
+          dispatchCost: dCost,
+          costPerPouch,
+          prodQtyKg,
+          variance
+        };
+      });
+
+      if (matchedProduct) {
+        costingRows = costingRows.filter(
+          r =>
+            r.productName.toLowerCase().includes(matchedProduct.name.toLowerCase()) ||
+            matchedProduct.name.toLowerCase().includes(r.productName.toLowerCase())
+        );
+      }
+      if (matchedBuyer) {
+        costingRows = costingRows.filter(r => r.buyerName.toLowerCase() === matchedBuyer.toLowerCase());
+      }
+
+      // Compute shift-level totals (without double-counting shared shift workers)
+      const seenShifts = new Set();
+      let totalKWorkers = 0;
+      let totalFWorkers = 0;
+      let totalDWorkers = 0;
+      let totalKCost = 0;
+      let totalFCost = 0;
+      let totalDCost = 0;
+      let totalPouches = 0;
+      let totalCookedKg = 0;
+      let totalProdKg = 0;
+      let totalPacked = 0;
+
+      costingRows.forEach(r => {
+        const sKey = `${r.dateKey}|||${r.shift}`;
+        if (!seenShifts.has(sKey)) {
+          seenShifts.add(sKey);
+          totalKWorkers += r.kitchenWorkers;
+          totalFWorkers += r.fillingWorkers;
+          totalDWorkers += r.dispatchWorkers;
+          totalKCost += r.kitchenCost;
+          totalFCost += r.fillingCost;
+          totalDCost += r.dispatchCost;
+        }
+        totalPouches += r.pouchesProduced;
+        totalCookedKg += r.productionQty;
+        totalProdKg += r.prodQtyKg;
+        totalPacked += r.pouchPacked;
+      });
+
+      const overallCostPerPouch = totalPouches > 0 ? (totalKCost + totalFCost) / totalPouches : 0;
+      const totalLabourCost = totalKCost + totalFCost + totalDCost;
+
+      contextData = {
+        requestedTimeframe: timeframe.label,
+        effectiveLabel,
+        usedFallbackDate,
+        totalPouches,
+        totalCookedKg,
+        totalKWorkers,
+        totalFWorkers,
+        totalDWorkers,
+        totalKCost,
+        totalFCost,
+        totalDCost,
+        totalLabourCost,
+        overallCostPerPouch,
+        rowsCount: costingRows.length,
+        sampleRows: costingRows.slice(0, 15)
+      };
+
+      const geminiAns = await callGeminiIfAvailable(q, contextData, activeRules);
+      if (geminiAns) {
+        const suggestions = await generateContextualSuggestions(intent, matchedProduct, q);
+        return res.status(200).json({ success: true, answer: geminiAns, intent, context: contextData, suggestions });
+      }
+
+      answer = `### 💰 Factory Costing & Labour Analysis (${usedFallbackDate ? `Latest Logged: ${effectiveLabel}` : timeframe.label})\n\n`;
+      if (usedFallbackDate) {
+        answer += `> ℹ️ *No shift logs were recorded on **${timeframe.label}**. Showing costing for the most recent logged production date (**${effectiveLabel}**).*\n\n`;
+      }
+
+      if (costingRows.length === 0) {
+        answer += `No shift costing records found for **${timeframe.label}**.\n`;
+      } else {
+        answer += `| Date | Shift | Buyer | Product | Cooked (Kg) | Pouches Filled | Kitchen Cost | Filling Cost | Dispatch Cost | **Cost / Pouch** |\n`;
+        answer += `| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n`;
+        costingRows.slice(0, 18).forEach(r => {
+          answer += `| ${r.dateKey} | \`${r.shift}\` | ${r.buyerName} | **${r.productName}** | ${formatNum(r.productionQty, prefs.decimalPlaces)} kg | **${formatPouch(r.pouchesProduced)}** | ₹${r.kitchenCost.toLocaleString()} (${r.kitchenWorkers}w) | ₹${r.fillingCost.toLocaleString()} (${r.fillingWorkers}w) | ₹${r.dispatchCost.toLocaleString()} (${r.dispatchWorkers}w) | **₹${formatNum(r.costPerPouch, prefs.decimalPlaces)}** |\n`;
+        });
+
+        answer += `\n#### 📊 Consolidated Costing Summary (${usedFallbackDate ? effectiveLabel : timeframe.label})\n`;
+        answer += `- 👷 **Total Shift Manpower:** **${totalKWorkers + totalFWorkers + totalDWorkers} workers** *(Kitchen: ${totalKWorkers}, Filling: ${totalFWorkers}, Dispatch: ${totalDWorkers})*\n`;
+        answer += `- 💵 **Kitchen Labour Cost:** **₹${totalKCost.toLocaleString()}** *(at ₹900/worker)*\n`;
+        answer += `- 💵 **Filling Labour Cost:** **₹${totalFCost.toLocaleString()}** *(at ₹900/worker)*\n`;
+        answer += `- 💵 **Dispatch Labour Cost:** **₹${totalDCost.toLocaleString()}** *(at ₹900/worker)*\n`;
+        answer += `- 💰 **Total Combined Labour Cost:** **₹${totalLabourCost.toLocaleString()}**\n`;
+        answer += `- 📦 **Total Pouches Produced:** **${formatPouch(totalPouches)} pouches** *(Cooked Yield: ${formatNum(totalCookedKg, prefs.decimalPlaces)} kg)*\n`;
+        answer += `- 🎯 **Average Production Cost per Pouch (Kitchen + Filling):** **₹${formatNum(overallCostPerPouch, prefs.decimalPlaces)} / pouch**\n\n`;
+        answer += `💡 *View full interactive monthly breakdown in **[Costing & Variance Report](/admin/costing)**.*`;
+      }
+    }
+
+    // 3B. HISTORICAL OPERATIONAL ANALYTICS: WORKER COUNT, POUCHES PRODUCED, POUCHES PACKED, KITCHEN YIELD
+    else if (
+      qLower.includes('worker') ||
+      qLower.includes('workers') ||
+      qLower.includes('manpower') ||
+      qLower.includes('headcount') ||
+      qLower.includes('staff') ||
+      qLower.includes('packed') ||
+      qLower.includes('dispatched') ||
       qLower.includes('created') ||
       qLower.includes('produced') ||
       qLower.includes('cooked') ||
       qLower.includes('made') ||
+      qLower.includes('filled') ||
       qLower.includes('how much') ||
-      (qLower.includes('yield') && !qLower.includes('recipe'))
+      (qLower.includes('yield') && !qLower.includes('recipe')) ||
+      (timeframe.hasExplicitTimeframe && (qLower.includes('how many') || qLower.includes('total') || qLower.includes('count') || qLower.includes('pouch') || Boolean(matchedProduct)))
     ) {
       intent = 'PRODUCTION_YIELD';
       const startDate = timeframe.start;
       const endDate = timeframe.end;
+      const matchedBuyer = findBuyerMatch(qLower, allProducts);
 
-      const filter = {
+      // Extract non-stopword product search tokens for fallback matching in Data logs
+      const rawSearchTokens = qLower
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length >= 3 && !stopWords.has(t) && !/^\d+$/.test(t) && (!matchedBuyer || t !== matchedBuyer.toLowerCase()));
+
+      const docs = await Data.find({
         createdAt: { $gte: startDate, $lte: endDate }
-      };
+      }).sort({ createdAt: 1 });
 
-      const docs = await Data.find(filter);
+      // 1. Worker count aggregation (per unique date + shift + section)
+      const shiftWorkerMap = new Map();
+      let kitchenWorkersTotal = 0;
+      let fillingWorkersTotal = 0;
+      let dispatchWorkersTotal = 0;
+      let dayShiftWorkers = 0;
+      let nightShiftWorkers = 0;
+      const activeDatesSet = new Set();
 
-      // Aggregate yields
+      // 2. Production & Packing aggregation
       let kitchenBatches = 0;
       let kitchenKg = 0;
       let filledPouches = 0;
+      let filledWeightKg = 0;
       let wastePouches = 0;
+      let packedPouches = 0;
+      let packedBoxes = 0;
+      let dispatchLeakage = 0;
+      let dispatchXray = 0;
       const productBreakdown = {};
 
       docs.forEach(doc => {
         const sec = doc.sectionMain;
+        const shift = String(doc.dayTime || 'Day').trim().toLowerCase() === 'night' ? 'Night' : 'Day';
         const dateKey = doc.createdAt ? new Date(doc.createdAt).toISOString().slice(0, 10) : 'Unknown';
+        const list = doc.dataList || [];
 
-        (doc.dataList || []).forEach(item => {
-          const prodName = item.productName || 'Unknown';
-          if (matchedProduct && !prodName.toLowerCase().includes(matchedProduct.name.toLowerCase()) && !matchedProduct.name.toLowerCase().includes(prodName.toLowerCase())) {
+        if (list.length > 0) {
+          activeDatesSet.add(dateKey);
+          const wKey = `${dateKey}|||${shift}|||${sec}`;
+          if (!shiftWorkerMap.has(wKey)) {
+            const wCount = Number(list[0].workersQuantity) || 0;
+            shiftWorkerMap.set(wKey, { dateKey, shift, section: sec, workers: wCount });
+            if (sec === 'Kitchen') kitchenWorkersTotal += wCount;
+            else if (sec === 'Filling') fillingWorkersTotal += wCount;
+            else if (sec === 'Dispatch') dispatchWorkersTotal += wCount;
+
+            if (shift === 'Day') dayShiftWorkers += wCount;
+            else nightShiftWorkers += wCount;
+          }
+        }
+
+        list.forEach(item => {
+          const prodName = (item.productName || 'Unknown').trim();
+          const itemBuyer = (item.buyerName || item.buyer || 'General').trim();
+          const prodLower = prodName.toLowerCase();
+          const buyerLower = itemBuyer.toLowerCase();
+
+          // Filter by buyer if user specified a buyer (e.g. "rgg")
+          if (matchedBuyer && buyerLower !== matchedBuyer.toLowerCase()) {
             return;
           }
 
-          if (!productBreakdown[prodName]) {
-            productBreakdown[prodName] = { batches: 0, kg: 0, filled: 0, waste: 0, dates: new Set() };
+          // Filter by product if user specified a product
+          if (matchedProduct) {
+            const mLower = matchedProduct.name.toLowerCase();
+            if (!prodLower.includes(mLower) && !mLower.includes(prodLower)) {
+              return;
+            }
+          } else if (rawSearchTokens.length > 0) {
+            const matchesTokens = rawSearchTokens.every(t => prodLower.includes(t) || buyerLower.includes(t));
+            if (!matchesTokens) return;
           }
-          productBreakdown[prodName].dates.add(dateKey);
+
+          const groupKey = `${itemBuyer} — ${prodName}`;
+          if (!productBreakdown[groupKey]) {
+            productBreakdown[groupKey] = {
+              buyer: itemBuyer,
+              product: prodName,
+              batches: 0,
+              kg: 0,
+              filled: 0,
+              waste: 0,
+              packed: 0,
+              boxes: 0,
+              dates: new Set()
+            };
+          }
+          productBreakdown[groupKey].dates.add(dateKey);
 
           if (sec === 'Kitchen') {
             const bQty = Number(item.batchQuantity) || 0;
             const y = Number(item.yield) || 0;
             kitchenBatches += bQty;
             kitchenKg += bQty * y;
-            productBreakdown[prodName].batches += bQty;
-            productBreakdown[prodName].kg += bQty * y;
+            productBreakdown[groupKey].batches += bQty;
+            productBreakdown[groupKey].kg += bQty * y;
           } else if (sec === 'Filling') {
             const f = Number(item.pouchQuantity) || 0;
             const w = Number(item.empty) || 0;
+            const ps = Number(item.packSize) > 5 ? Number(item.packSize) / 1000 : (Number(item.packSize) || 0.25);
             filledPouches += f;
+            filledWeightKg += f * ps;
             wastePouches += w;
-            productBreakdown[prodName].filled += f;
-            productBreakdown[prodName].waste += w;
+            productBreakdown[groupKey].filled += f;
+            productBreakdown[groupKey].waste += w;
+          } else if (sec === 'Dispatch') {
+            const pk = Number(item.pouchPacked) || 0;
+            const bx = Number(item.box) || 0;
+            const lk = Number(item.leaked) || 0;
+            const fm = Number(item.foreignMatter) || 0;
+            packedPouches += pk;
+            packedBoxes += bx;
+            dispatchLeakage += lk;
+            dispatchXray += fm;
+            productBreakdown[groupKey].packed += pk;
+            productBreakdown[groupKey].boxes += bx;
           }
         });
       });
 
+      const totalWorkersAllSections = kitchenWorkersTotal + fillingWorkersTotal + dispatchWorkersTotal;
+      const asksWorkers =
+        qLower.includes('worker') ||
+        qLower.includes('workers') ||
+        qLower.includes('manpower') ||
+        qLower.includes('headcount') ||
+        qLower.includes('staff');
+      const asksProductionOrPacking =
+        qLower.includes('pouch') ||
+        qLower.includes('pouches') ||
+        qLower.includes('produced') ||
+        qLower.includes('packed') ||
+        qLower.includes('made') ||
+        qLower.includes('cooked') ||
+        qLower.includes('created') ||
+        qLower.includes('filled') ||
+        Boolean(matchedProduct) ||
+        rawSearchTokens.length > 0;
+
       contextData = {
         timeframe: timeframe.label,
+        matchedBuyer,
         matchedProduct: matchedProduct?.name,
-        kitchenBatches,
-        kitchenKg,
-        filledPouches,
-        wastePouches,
+        activeDays: activeDatesSet.size,
+        workers: {
+          total: totalWorkersAllSections,
+          kitchen: kitchenWorkersTotal,
+          filling: fillingWorkersTotal,
+          dispatch: dispatchWorkersTotal,
+          dayShift: dayShiftWorkers,
+          nightShift: nightShiftWorkers,
+          estimatedLabourCost: totalWorkersAllSections * 900
+        },
+        production: {
+          kitchenBatches,
+          kitchenKg,
+          filledPouches,
+          filledWeightKg,
+          wastePouches,
+          packedPouches,
+          packedBoxes,
+          dispatchLeakage,
+          dispatchXray
+        },
         productBreakdown
       };
 
@@ -1340,30 +1822,61 @@ exports.chatWithAi = async (req, res) => {
       }
 
       const prodKeys = Object.keys(productBreakdown);
-      if (prodKeys.length > 0) {
-        answer = `### 🍲 Production Output (${timeframe.label})\n\n`;
-        if (matchedProduct) {
-          answer += `Data for **${matchedProduct.name}** (${matchedProduct.buyer}):\n\n`;
-        } else {
-          answer += `Factory output across **${prodKeys.length}** product(s):\n\n`;
+      answer = `### 📊 Factory Operations Report (${timeframe.label})\n\n`;
+
+      if (docs.length === 0) {
+        answer += `No shift logs found in the database for **${timeframe.label}**.\n\n`;
+        answer += `💡 *Verify shift entries in **[Kitchen](/today-kitchen)**, **[Filling](/today-filling)**, or **[Dispatch](/today-dispatch)**.*`;
+      } else {
+        // Section 1: Worker Count Breakdown (if asked about workers or general summary)
+        if (asksWorkers) {
+          answer += `#### 👷 1. Manpower & Worker Count Summary (${timeframe.label})\n\n`;
+          answer += `| Department | Worker Count (Man-Shifts) | Labour Cost (@ ₹900/worker) |\n`;
+          answer += `| :--- | :---: | :---: |\n`;
+          answer += `| **Kitchen Section** | **${kitchenWorkersTotal.toLocaleString()}** | ₹${(kitchenWorkersTotal * 900).toLocaleString()} |\n`;
+          answer += `| **Filling & Retort Section** | **${fillingWorkersTotal.toLocaleString()}** | ₹${(fillingWorkersTotal * 900).toLocaleString()} |\n`;
+          answer += `| **Dispatch & Packing Section** | **${dispatchWorkersTotal.toLocaleString()}** | ₹${(dispatchWorkersTotal * 900).toLocaleString()} |\n`;
+          answer += `| 🎯 **Total Factory Workers** | **${totalWorkersAllSections.toLocaleString()} workers** | **₹${(totalWorkersAllSections * 900).toLocaleString()}** |\n\n`;
+          answer += `- ☀️ **Day Shift Workers:** ${dayShiftWorkers.toLocaleString()} | 🌙 **Night Shift Workers:** ${nightShiftWorkers.toLocaleString()} | 📅 **Active Production Days:** ${activeDatesSet.size} day(s)\n\n`;
         }
 
-        answer += `| Product Name | Kitchen Batches | Cooked Yield (Kg) | Pouch Filled | Waste Pouches |\n`;
-        answer += `| :--- | :---: | :---: | :---: | :---: |\n`;
+        // Section 2: Production & Packing Breakdown (if asked about production/pouches/packed or if not only workers)
+        if (asksProductionOrPacking || !asksWorkers) {
+          const filterTitle = matchedProduct
+            ? `for **${matchedBuyer ? `${matchedBuyer} - ` : ''}${matchedProduct.name}**`
+            : matchedBuyer
+            ? `for Buyer **${matchedBuyer}**`
+            : rawSearchTokens.length > 0
+            ? `matching **"${rawSearchTokens.join(' ')}"**`
+            : `across **${prodKeys.length}** product line(s)`;
 
-        prodKeys.forEach(pk => {
-          const pb = productBreakdown[pk];
-          answer += `| **${pk}** | ${formatNum(pb.batches, prefs.decimalPlaces)} | ${formatNum(pb.kg, prefs.decimalPlaces)} kg | **${formatPouch(pb.filled)}** | ${formatPouch(pb.waste)} |\n`;
-        });
+          answer += `#### 📦 ${asksWorkers ? '2. ' : ''}Production, Filling & Packing Summary ${filterTitle}\n\n`;
 
-        answer += `\n**Overall Totals:**\n`;
-        answer += `- 🍳 **Kitchen Batches Cooked:** ${formatNum(kitchenBatches, prefs.decimalPlaces)} batches (${formatNum(kitchenKg, prefs.decimalPlaces)} kg)\n`;
-        answer += `- 📦 **Pouches Filled:** ${formatPouch(filledPouches)} pouches\n`;
-        answer += `- 🗑️ **Waste / Empty Pouches:** ${formatPouch(wastePouches)} pouches\n`;
-      } else {
-        answer = `### 🍲 Production Output (${timeframe.label})\n\n`;
-        answer += `No production or filling records found for ${matchedProduct ? `**${matchedProduct.name}**` : 'any product'} within **${timeframe.label}**.\n\n`;
-        answer += `💡 *Verify shift entries in the **[Kitchen Section](/today-kitchen)** or **[Filling Section](/today-filling)** to see today's logged shifts.*`;
+          if (prodKeys.length === 0) {
+            answer += `No matching product records found ${filterTitle} during **${timeframe.label}**.\n\n`;
+          } else {
+            answer += `| Buyer | Product Name | Kitchen Batches | Cooked Yield (Kg) | Pouches Produced (Filled) | Pouches Packed (Dispatch) | Boxes Packed |\n`;
+            answer += `| :--- | :--- | :---: | :---: | :---: | :---: | :---: |\n`;
+
+            prodKeys.slice(0, 25).forEach(pk => {
+              const pb = productBreakdown[pk];
+              answer += `| \`${pb.buyer}\` | **${pb.product}** | ${formatNum(pb.batches, prefs.decimalPlaces)} | ${formatNum(pb.kg, prefs.decimalPlaces)} kg | **${formatPouch(pb.filled)}** | **${formatPouch(pb.packed)}** | ${formatPouch(pb.boxes)} |\n`;
+            });
+
+            if (prodKeys.length > 25) {
+              answer += `| ... | *+${prodKeys.length - 25} more products* | — | — | — | — | — |\n`;
+            }
+
+            answer += `\n**📈 Grand Totals (${timeframe.label}):**\n`;
+            answer += `- 🍳 **Kitchen Cooked Output:** **${formatNum(kitchenBatches, prefs.decimalPlaces)} batches** (**${formatNum(kitchenKg, prefs.decimalPlaces)} kg**)\n`;
+            answer += `- 📦 **Total Pouches Produced (Filled):** **${formatPouch(filledPouches)} pouches** *(~${formatNum(filledWeightKg, prefs.decimalPlaces)} kg)*\n`;
+            answer += `- 🚚 **Total Pouches Packed (Dispatch):** **${formatPouch(packedPouches)} pouches** (**${formatPouch(packedBoxes)} carton boxes**)\n`;
+            answer += `- 🗑️ **Wastage / Defects:** Filling Empty: ${formatPouch(wastePouches)} pouches | Dispatch Leakage: ${formatPouch(dispatchLeakage)} | X-Ray Defects: ${formatPouch(dispatchXray)}\n`;
+            if (!asksWorkers) {
+              answer += `- 👷 **Total Workers Deployed in Period:** **${totalWorkersAllSections.toLocaleString()} workers** *(Kitchen: ${kitchenWorkersTotal}, Filling: ${fillingWorkersTotal}, Dispatch: ${dispatchWorkersTotal})*\n`;
+            }
+          }
+        }
       }
     }
 

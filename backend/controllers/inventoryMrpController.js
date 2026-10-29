@@ -11,6 +11,26 @@ const BuyerOrder = require('../models/buyerOrderModel');
 const MaterialOrder = require('../models/materialOrderModel');
 const Data = require('../models/dataModel');
 
+// Helper to safely parse any date string (YYYY-MM-DD, DD-MM-YYYY) to Noon UTC (12:00:00.000Z)
+// so it never shifts to the previous day in UTC, IST, or US timezones.
+const parseDateSafe = (val) => {
+    if (!val) return new Date();
+    if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+    if (typeof val === 'string') {
+        const clean = val.trim();
+        const ymd = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (ymd) {
+            return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]), 12, 0, 0, 0));
+        }
+        const dmy = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (dmy) {
+            return new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]), 12, 0, 0, 0));
+        }
+    }
+    const parsed = new Date(val);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
 // Helper to robustly parse Excel dates (serial numbers, Date objects, strings)
 const parseExcelDate = (val) => {
     if (!val) return null;
@@ -21,11 +41,14 @@ const parseExcelDate = (val) => {
         return isNaN(date.getTime()) ? null : date;
     }
     if (typeof val === 'string') {
-        // Handle common formats: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY
         const clean = val.trim();
+        const ymd = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (ymd) {
+            return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]), 12, 0, 0, 0));
+        }
         const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
         if (dmyMatch) {
-            const date = new Date(`${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`);
+            const date = new Date(Date.UTC(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]), 12, 0, 0, 0));
             return isNaN(date.getTime()) ? null : date;
         }
         const date = new Date(clean);
@@ -299,6 +322,7 @@ exports.createRawMaterial = async (req, res) => {
             code,
             storageType,
             baseUnit,
+            unitWeightKg,
             currentStock,
             minSafetyStock,
             leadTimeDays,
@@ -313,19 +337,24 @@ exports.createRawMaterial = async (req, res) => {
         }
 
         const normalizedBaseUnit = normalizeUnit(baseUnit);
+        const parsedUnitWeightKg =
+            unitWeightKg !== undefined && unitWeightKg !== null && unitWeightKg !== '' && Number(unitWeightKg) > 0
+                ? Number(unitWeightKg)
+                : null;
 
         const material = await RawMaterial.create({
             name: name.trim(),
             code: code ? code.trim().toUpperCase() : undefined,
             storageType: storageType || 'Ambient',
             baseUnit: normalizedBaseUnit,
+            unitWeightKg: parsedUnitWeightKg,
             currentStock: Number(currentStock) || 0,
             minSafetyStock: Number(minSafetyStock) || 0,
             leadTimeDays: Number(leadTimeDays) || 1,
             packSize: Number(packSize) || 1,
             preferredSupplier: preferredSupplier || '',
             lastPurchaseRate: Number(lastPurchaseRate) || 0,
-            earliestExpiryDate: req.body.earliestExpiryDate ? new Date(req.body.earliestExpiryDate) : undefined
+            earliestExpiryDate: req.body.earliestExpiryDate ? parseDateSafe(req.body.earliestExpiryDate) : undefined
         });
 
         // If initial opening stock was provided during creation, record ledger entry
@@ -354,6 +383,15 @@ exports.updateRawMaterial = async (req, res) => {
     try {
         if (req.body.baseUnit) {
             req.body.baseUnit = normalizeUnit(req.body.baseUnit);
+            if (['kg', 'g', 'L', 'ml'].includes(req.body.baseUnit) && req.body.unitWeightKg === undefined) {
+                req.body.unitWeightKg = null;
+            }
+        }
+        if (req.body.unitWeightKg !== undefined) {
+            req.body.unitWeightKg =
+                req.body.unitWeightKg !== null && req.body.unitWeightKg !== '' && Number(req.body.unitWeightKg) > 0
+                    ? Number(req.body.unitWeightKg)
+                    : null;
         }
         const material = await RawMaterial.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
@@ -1052,7 +1090,7 @@ exports.recordGRN = async (req, res) => {
             return res.status(400).json({ success: false, message: 'GRN must contain at least one item' });
         }
 
-        const date = receivedDate ? new Date(receivedDate) : new Date();
+        const date = receivedDate ? parseDateSafe(receivedDate) : new Date();
         const autoGrn = grnNumber || generate4to5DigitCode('GRN');
         const processedItems = [];
 
@@ -1069,7 +1107,7 @@ exports.recordGRN = async (req, res) => {
             rawMat.lastPurchaseRate = rate;
 
             if (item.expiryDate) {
-                const itemExp = new Date(item.expiryDate);
+                const itemExp = parseDateSafe(item.expiryDate);
                 if (!rawMat.earliestExpiryDate || itemExp < new Date(rawMat.earliestExpiryDate)) {
                     rawMat.earliestExpiryDate = itemExp;
                 }
@@ -1103,11 +1141,12 @@ exports.recordGRN = async (req, res) => {
                 grnNumber: autoGrn,
                 vendor: vendorName || item.vendorName || '',
                 lotNumber: item.lotNumber || `LOT-${autoGrn}`,
-                expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
+                expiryDate: item.expiryDate ? parseDateSafe(item.expiryDate) : undefined,
                 storageType: rawMat.storageType,
                 referenceId: vendorInvoiceNumber || '',
                 reason: `GRN from ${vendorName || 'Supplier'}`,
-                createdBy: req.body.createdBy || 'Store Manager'
+                createdBy: req.body.createdBy || 'Store Manager',
+                createdAt: date
             });
 
             processedItems.push({ rawMat, ledger });
@@ -1132,6 +1171,7 @@ exports.updateGRN = async (req, res) => {
             rate,
             lotNumber,
             expiryDate,
+            receivedDate,
             vendor,
             reason,
             grnNumber,
@@ -1220,7 +1260,8 @@ exports.updateGRN = async (req, res) => {
         entry.rate = newRate;
         entry.totalAmount = newQty * newRate;
         if (lotNumber !== undefined) entry.lotNumber = lotNumber;
-        if (expiryDate !== undefined) entry.expiryDate = expiryDate ? new Date(expiryDate) : undefined;
+        if (expiryDate !== undefined) entry.expiryDate = expiryDate ? parseDateSafe(expiryDate) : undefined;
+        if (receivedDate) entry.createdAt = parseDateSafe(receivedDate);
         if (vendor !== undefined) {
             entry.vendor = vendor;
             if (!reason) entry.reason = `GRN from ${vendor}`;
@@ -1842,10 +1883,20 @@ exports.calculateMRP = async (req, res) => {
                     const key = rmId || ing.materialName.toLowerCase();
 
                     let unitMultiplier = 1;
-                    if ((ing.unit === 'g' || ing.unit === 'gm') && (!rm || rm.baseUnit === 'kg')) {
+                    const ingU = (ing.unit || 'kg').toLowerCase();
+                    const rmU = rm ? (rm.baseUnit || 'kg').toLowerCase() : ingU;
+                    if ((ingU === 'g' || ingU === 'gm') && rmU === 'kg') {
                         unitMultiplier = 0.001;
-                    } else if (ing.unit === 'ml' && (!rm || rm.baseUnit === 'L')) {
+                    } else if (ingU === 'ml' && (rmU === 'l' || rmU === 'ltr')) {
                         unitMultiplier = 0.001;
+                    } else if (rm && rm.unitWeightKg > 0 && ingU !== rmU) {
+                        if (ingU === 'kg' && !['kg', 'g', 'gm', 'l', 'ml'].includes(rmU)) {
+                            unitMultiplier = 1 / rm.unitWeightKg;
+                        } else if ((ingU === 'g' || ingU === 'gm') && !['kg', 'g', 'gm', 'l', 'ml'].includes(rmU)) {
+                            unitMultiplier = 0.001 / rm.unitWeightKg;
+                        } else if (!['kg', 'g', 'gm', 'l', 'ml'].includes(ingU) && rmU === 'kg') {
+                            unitMultiplier = rm.unitWeightKg;
+                        }
                     }
 
                     const grossRequired = ing.edibleQuantity * unitMultiplier * (ing.lossFactor || 1.0) * batches;
@@ -1865,6 +1916,7 @@ exports.calculateMRP = async (req, res) => {
                             materialCode: rm ? rm.code : ing.materialCode,
                             storageType: rm ? rm.storageType : ing.storageType,
                             baseUnit: rm ? rm.baseUnit : ing.unit,
+                            unitWeightKg: rm ? rm.unitWeightKg : null,
                             currentStock: rm ? rm.currentStock : 0,
                             leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
                             packSize: rm ? rm.packSize : 1,
@@ -1935,10 +1987,20 @@ exports.calculateMRP = async (req, res) => {
                     const key = rmId || ing.materialName.toLowerCase();
 
                     let unitMultiplier = 1;
-                    if ((ing.unit === 'g' || ing.unit === 'gm') && (!rm || rm.baseUnit === 'kg')) {
+                    const ingU = (ing.unit || 'kg').toLowerCase();
+                    const rmU = rm ? (rm.baseUnit || 'kg').toLowerCase() : ingU;
+                    if ((ingU === 'g' || ingU === 'gm') && rmU === 'kg') {
                         unitMultiplier = 0.001;
-                    } else if (ing.unit === 'ml' && (!rm || rm.baseUnit === 'L')) {
+                    } else if (ingU === 'ml' && (rmU === 'l' || rmU === 'ltr')) {
                         unitMultiplier = 0.001;
+                    } else if (rm && rm.unitWeightKg > 0 && ingU !== rmU) {
+                        if (ingU === 'kg' && !['kg', 'g', 'gm', 'l', 'ml'].includes(rmU)) {
+                            unitMultiplier = 1 / rm.unitWeightKg;
+                        } else if ((ingU === 'g' || ingU === 'gm') && !['kg', 'g', 'gm', 'l', 'ml'].includes(rmU)) {
+                            unitMultiplier = 0.001 / rm.unitWeightKg;
+                        } else if (!['kg', 'g', 'gm', 'l', 'ml'].includes(ingU) && rmU === 'kg') {
+                            unitMultiplier = rm.unitWeightKg;
+                        }
                     }
 
                     const grossRequired = ing.edibleQuantity * unitMultiplier * (ing.lossFactor || 1.0) * batches;
@@ -1958,6 +2020,7 @@ exports.calculateMRP = async (req, res) => {
                             materialCode: rm ? rm.code : ing.materialCode,
                             storageType: rm ? rm.storageType : ing.storageType,
                             baseUnit: rm ? rm.baseUnit : ing.unit,
+                            unitWeightKg: rm ? rm.unitWeightKg : null,
                             currentStock: rm ? rm.currentStock : 0,
                             leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
                             packSize: rm ? rm.packSize : 1,
@@ -2418,7 +2481,7 @@ exports.createMaterialIssue = async (req, res) => {
 
         const autoIssueNumber = generate4to5DigitCode('ISS');
         const processedItems = [];
-        const parsedIssueDate = issueDate ? new Date(issueDate) : new Date();
+        const parsedIssueDate = issueDate ? parseDateSafe(issueDate) : new Date();
 
         let resolvedBuyer = buyerName || '';
         let resolvedProduct = productName || '';
@@ -2471,7 +2534,8 @@ exports.createMaterialIssue = async (req, res) => {
                 storageType: rawMat.storageType,
                 referenceId: autoIssueNumber,
                 reason: `Kitchen store issue for ${numBatches} batch(es) of ${resolvedProduct || 'Recipe'}${productionOrderId ? ` (PO #${productionOrderId})` : ''}`,
-                createdBy: kitchenSupervisor || 'Kitchen Supervisor'
+                createdBy: kitchenSupervisor || 'Kitchen Supervisor',
+                createdAt: parsedIssueDate
             });
 
             processedItems.push({
@@ -2484,6 +2548,7 @@ exports.createMaterialIssue = async (req, res) => {
                 theoreticalGrossQty: theoreticalGross,
                 actualIssuedQty: issuedQty,
                 unit: rawMat.baseUnit,
+                unitWeightKg: rawMat.unitWeightKg || null,
                 varianceQty: parseFloat(variance.toFixed(3)),
                 variancePercent,
                 lotsUsed: [{
@@ -2494,7 +2559,15 @@ exports.createMaterialIssue = async (req, res) => {
             });
         }
 
-        const totalIssuedKg = processedItems.reduce((acc, it) => acc + (it.actualIssuedQty || 0), 0);
+        const totalIssuedKg = processedItems.reduce((acc, it) => {
+            const qty = Number(it.actualIssuedQty) || 0;
+            const u = (it.unit || 'kg').toLowerCase();
+            if (u === 'g' || u === 'gm' || u === 'ml') return acc + qty * 0.001;
+            if (!['kg', 'g', 'gm', 'l', 'ltr', 'ml'].includes(u) && it.unitWeightKg > 0) {
+                return acc + qty * Number(it.unitWeightKg);
+            }
+            return acc + qty;
+        }, 0);
 
         const issue = await MaterialIssue.create({
             issueNumber: autoIssueNumber,
