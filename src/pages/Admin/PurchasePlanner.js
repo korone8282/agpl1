@@ -77,6 +77,7 @@ const PurchasePlanner = () => {
   const [recipes, setRecipes] = useState([]);
   const [buyers, setBuyers] = useState([]);
   const [mrpData, setMrpData] = useState([]);
+  const [selectedMrpVariants, setSelectedMrpVariants] = useState({});
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
 
@@ -1583,6 +1584,21 @@ const PurchasePlanner = () => {
                   {mrpData.map((row) => {
                     const isSelected = selectedItems.has(row.materialName);
                     const batchCount = row.orderedBatches?.length || 0;
+                    const variants = Array.isArray(row.unitWeightVariants) && row.unitWeightVariants.length > 0
+                      ? row.unitWeightVariants
+                      : row.unitWeightKg > 0
+                      ? [Number(row.unitWeightKg)]
+                      : [];
+                    const baseVariantKg = Number(row.unitWeightKg) || variants[0] || 0;
+                    const activeVariantKg =
+                      selectedMrpVariants[row.materialName] !== undefined
+                        ? Number(selectedMrpVariants[row.materialName])
+                        : baseVariantKg;
+                    const variantScale =
+                      baseVariantKg > 0 && activeVariantKg > 0 ? baseVariantKg / activeVariantKg : 1;
+                    const displayGrossRequired = parseFloat(((row.totalGrossRequired || 0) * variantScale).toFixed(3));
+                    const displayShortfall = Math.max(0, parseFloat((displayGrossRequired - (row.currentStock || 0)).toFixed(3)));
+
                     return (
                       <tr
                         key={row.materialName}
@@ -1600,20 +1616,46 @@ const PurchasePlanner = () => {
                         </td>
                         <td className="py-4 px-4 font-medium text-white">
                           <div>{row.materialName}</div>
+                          {variants.length > 1 && (
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <span className="text-[10px] text-primary font-semibold">Variant:</span>
+                              <select
+                                value={activeVariantKg}
+                                onChange={(e) =>
+                                  setSelectedMrpVariants((prev) => ({
+                                    ...prev,
+                                    [row.materialName]: Number(e.target.value)
+                                  }))
+                                }
+                                className="bg-black border border-primary/50 rounded px-1.5 py-0.5 text-[10px] text-emerald-300 font-mono focus:outline-none focus:border-primary cursor-pointer"
+                              >
+                                {variants.map((v, vIdx) => (
+                                  <option key={vIdx} value={v}>
+                                    1 {row.baseUnit} = {format3Decimals(v)} kg
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {variants.length === 1 && (
+                            <div className="text-[10px] font-mono text-emerald-400">
+                              1 {row.baseUnit} = {format3Decimals(variants[0])} kg
+                            </div>
+                          )}
                           {row.preferredSupplier && (
                             <div className="text-[12px] text-gray-500">Vendor: {row.preferredSupplier}</div>
                           )}
                         </td>
                         <td className="py-4 px-3 text-right font-mono font-medium text-white">
-                          {format3Decimals(row.totalGrossRequired)} {row.baseUnit}
+                          {format3Decimals(displayGrossRequired)} {row.baseUnit}
                         </td>
                         <td className="py-4 px-3 text-right font-mono text-gray-300">
                           {format3Decimals(row.currentStock)} {row.baseUnit}
                         </td>
                         <td className="py-4 px-3 text-right font-mono">
-                          {row.isShortage ? (
+                          {displayShortfall > 0 ? (
                             <span className="text-rose-400 font-bold">
-                              -{format3Decimals(row.shortfallQuantity)} {row.baseUnit}
+                              -{format3Decimals(displayShortfall)} {row.baseUnit}
                             </span>
                           ) : (
                             <span className="text-emerald-400">0.000 {row.baseUnit}</span>
@@ -1666,7 +1708,7 @@ const PurchasePlanner = () => {
                         {/* Shortfall after deducting incoming PO if applicable */}
                         <td className="py-4 px-3 text-right font-mono">
                           {(() => {
-                            const dueShortfall = Math.max(0, (row.shortfallQuantity || 0) - (row.incomingPipelineQty || 0));
+                            const dueShortfall = Math.max(0, displayShortfall - (row.incomingPipelineQty || 0));
                             if (dueShortfall > 0) {
                               return (
                                 <span className="text-amber-400 font-bold">
@@ -1674,7 +1716,7 @@ const PurchasePlanner = () => {
                                 </span>
                               );
                             }
-                            if (row.shortfallQuantity > 0 && (row.incomingPipelineQty || 0) >= row.shortfallQuantity) {
+                            if (displayShortfall > 0 && (row.incomingPipelineQty || 0) >= displayShortfall) {
                               return (
                                 <span className="text-emerald-400 font-medium">
                                   0.000 {row.baseUnit} <span className="text-[10px] opacity-75">(Covered)</span>

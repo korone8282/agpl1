@@ -3,88 +3,80 @@ const Data = require('../models/dataModel');
 
 exports.readGraph = async(req,res) => {
     try {
- 
         const {month} = req.params;
+        const m = Number(month);
+        const daysInMonth = new Date(Date.UTC(2026, m, 0)).getUTCDate();
 
-        const arr = [];
+        const startOfMonth = new Date(Date.UTC(2026, m - 1, 1, 0, 0, 0, 0));
+        const endOfMonth = new Date(Date.UTC(2026, m - 1, daysInMonth, 23, 59, 59, 999));
 
-        let flag = 0;
- 
-        for(let i=1;i<32;i++){
+        const allDocs = await Data.find({
+            createdAt: {
+                $gte: startOfMonth,
+                $lte: endOfMonth
+            }
+        });
 
-            const start = new Date(`2026-${month}-${i}`);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(`2026-${month}-${i}`);
-            end.setHours(23, 59, 59, 999);
-
-            const existData = await Data.find({createdAt:{
-                $gte:start,
-                $lte:end
-            }});
-
-            existData.length ? ( arr.push(existData), flag = 1 ) : arr.push([])
-
-        }
-
-        if(!flag){
+        if (!allDocs.length) {
             return res.status(404).json({
-                message:"data doesn't exists",
-                })
+                message: "data doesn't exists",
+            });
         }
-                    
-         res.status(200).json({
-            success:true,
-            data:arr,
-        })
-                
-        } catch (error) {
-            console.log(error);
-            res.status(400).json({
-             message:error
-        })
-                }
-         }
+
+        const arr = Array.from({ length: 31 }, () => []);
+        for (const doc of allDocs) {
+            const d = new Date(doc.createdAt).getUTCDate();
+            if (d >= 1 && d <= 31) {
+                arr[d - 1].push(doc);
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            data: arr,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).json({
+            message: error
+        });
+    }
+};
 
 exports.monthlyGraph = async(req,res) => {
-            try {
-                
-                const days = [31,29,31,30,31,30,31,31,30,31,30,31];
+    try {
+        const startOfYear = new Date(Date.UTC(2026, 0, 1, 0, 0, 0, 0));
+        const endOfYear = new Date(Date.UTC(2026, 11, 31, 23, 59, 59, 999));
 
-                const arr = [];
+        const allDocs = await Data.find({
+            createdAt: {
+                $gte: startOfYear,
+                $lte: endOfYear
+            }
+        });
 
-                let flag = 0;
+        if (!allDocs.length) {
+            return res.status(404).json({
+                message: "data doesn't exists",
+            });
+        }
 
-                for(let i=1;i<13;i++){
- 
-                const startDate = new Date(`2026-${i}-01`);
-                startDate.setHours(0, 0, 0, 0);
-                const endDate = new Date(`2026-${i}-${days[i-1]}`);
-                endDate.setHours(23, 59, 59, 999);
+        const arr = Array.from({ length: 12 }, () => []);
+        for (const doc of allDocs) {
+            const mIdx = new Date(doc.createdAt).getUTCMonth();
+            if (mIdx >= 0 && mIdx < 12) {
+                arr[mIdx].push(doc);
+            }
+        }
 
-                const existData = await Data.find({createdAt:{
-                    $gte:startDate,
-                    $lte:endDate
-                } });
-
-                existData.length ? ( arr.push(existData), flag =1  ) : arr.push([])
-
-                }
-
-                if(!flag){
-                    return res.status(404).json({
-                        message:"data doesn't exists",
-                        })
-                }
-
-                 res.status(200).json({
-                    success:true,
-                    data:arr,
-                })
-                        
-                } catch (error) {
-                    console.log(error);
-                    res.status(400).json({
-                     message:error
-                })
-                        }
-                }
+        res.status(200).json({
+            success: true,
+            data: arr,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).json({
+            message: error
+        });
+    }
+};

@@ -181,6 +181,14 @@ exports.deleteData = async(req,res)=>{
     }
 }
 
+function escapeRegex(str) {
+    return String(str || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildTrimmedRegex(str) {
+    return new RegExp(`^\\s*${escapeRegex(str)}\\s*$`, 'i');
+}
+
 exports.readBuyerData = async(req,res) => {
     try {
 
@@ -202,7 +210,7 @@ exports.readBuyerData = async(req,res) => {
         const existData = await Data.find({createdAt:{
             $gte:startDate,
             $lte:endDate
-        },dataList:{ $elemMatch: { buyerName:buyer } } });
+        },dataList:{ $elemMatch: { buyerName: buildTrimmedRegex(buyer) } } });
 
             if(!existData.length){
              return res.status(404).json({
@@ -330,26 +338,40 @@ exports.ProductData = async(req,res) => {
 
                         const {start,end,product} = req.body;
 
+                        if (!start || !end || !product || (!product.name && !product.buyer)) {
+                            return res.status(400).json({
+                                message: "Missing date range or product/buyer selection",
+                            });
+                        }
+
                         const sParsed = parseCalendarDate(start);
                         const eParsed = parseCalendarDate(end);
                         const startDate = getDayBoundsUTC(sParsed.year, sParsed.month, sParsed.day).start;
                         const endDate = getDayBoundsUTC(eParsed.year, eParsed.month, eParsed.day).end;
 
-                        const existData = await Data.find({
-                        createdAt:{
-                            $gte:startDate,
-                            $lte:endDate
-                        },
-                        dataList:{ $elemMatch: { productName:product.name ,buyerName:product.buyer}},
-                         });
+                        const elemMatchQuery = {};
+                        if (product.buyer && String(product.buyer).trim()) {
+                            elemMatchQuery.buyerName = buildTrimmedRegex(product.buyer);
+                        }
+                        if (product.name && String(product.name).trim() && String(product.name).trim().toUpperCase() !== 'ALL') {
+                            elemMatchQuery.productName = buildTrimmedRegex(product.name);
+                        }
 
-                            if(!existData.length){
-                             return res.status(404).json({
-                             message:"Data Doesn't Exists",
-                             })
+                        const existData = await Data.find({
+                            createdAt: {
+                                $gte: startDate,
+                                $lte: endDate
+                            },
+                            dataList: { $elemMatch: elemMatchQuery },
+                        }).sort({ createdAt: 1 });
+
+                        if(!existData.length){
+                            return res.status(404).json({
+                                message:"Data Doesn't Exists",
+                            })
                         }
  
-                         res.status(200).json({
+                        res.status(200).json({
                             success:true,
                             data:existData,
                         })
@@ -366,16 +388,15 @@ exports.ProductData = async(req,res) => {
 exports.readLeft = async(req,res) => {
                             try {
                             
-                                const startDate = new Date();
-
-                                startDate.setHours(0, 0, 0, 0);
-
-                                const endDate = new Date(startDate - 14 * 24 * 60 * 60 * 1000);
+                                const now = new Date();
+                                const upperDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+                                const lowerDate = new Date(upperDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+                                lowerDate.setUTCHours(0, 0, 0, 0);
 
                                 const existData = await Data.find({createdAt:{
-                            $gte:endDate,
-                            $lte:startDate
-                        }}).sort({"createdAt": -1});
+                                    $gte:lowerDate,
+                                    $lte:upperDate
+                                }}).sort({"createdAt": -1});
 
                                     if(!existData.length){
                                      return res.status(404).json({

@@ -24,6 +24,24 @@ const format3Decimals = (val) => {
   return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
 };
 
+const isNonStandardUnit = (unit) => {
+  if (!unit) return false;
+  const u = String(unit).trim().toLowerCase();
+  if (!u) return false;
+  return !['kg', 'kgs', 'g', 'gm', 'gms', 'l', 'ltr', 'ml'].includes(u);
+};
+
+const getMaterialVariants = (mat) => {
+  if (!mat) return [];
+  const arr = Array.isArray(mat.unitWeightVariants)
+    ? mat.unitWeightVariants.map(Number).filter((n) => !isNaN(n) && n > 0)
+    : [];
+  if (arr.length === 0 && mat.unitWeightKg && Number(mat.unitWeightKg) > 0) {
+    arr.push(Number(mat.unitWeightKg));
+  }
+  return arr;
+};
+
 const MaterialIssue = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
@@ -154,6 +172,76 @@ const MaterialIssue = () => {
     recalculateIssueItems(null, ord, parseFloat(batchCount) || 1);
   };
 
+  const buildIssueRow = (ing, rowKey, validBatches, materials, cumulativeIssuedByRm) => {
+    let unitMultiplier = 1;
+    const ingUnitLower = String(ing.unit || 'kg').trim().toLowerCase();
+    if (ingUnitLower === 'g' || ingUnitLower === 'gm') unitMultiplier = 0.001;
+    if (ingUnitLower === 'ml') unitMultiplier = 0.001;
+
+    const recipeEdibleKg = parseFloat((Number(ing.edibleQuantity || 0) * unitMultiplier * validBatches).toFixed(3));
+    const recipeGrossKg = parseFloat(
+      (Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0) * validBatches).toFixed(3)
+    );
+    const targetUnit =
+      ingUnitLower === 'g' || ingUnitLower === 'gm'
+        ? 'kg'
+        : ingUnitLower === 'ml'
+        ? 'L'
+        : ing.unit || 'kg';
+
+    const matchedRm = materials.find(
+      (rm) =>
+        (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
+        rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
+    );
+
+    const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
+    const availStock = matchedRm ? matchedRm.currentStock || 0 : 0;
+    const stockUnit = matchedRm ? matchedRm.baseUnit : targetUnit;
+    const variants = getMaterialVariants(matchedRm);
+    const isRmNonStd = isNonStandardUnit(stockUnit);
+
+    const selectedVariantKg =
+      isRmNonStd && variants.length > 0
+        ? Number(variants[0])
+        : isRmNonStd && matchedRm?.unitWeightKg
+        ? Number(matchedRm.unitWeightKg)
+        : null;
+
+    // Recipe quantities ALWAYS remain in the recipe's own unit (kg)
+    const theoreticalEdibleQty = recipeEdibleKg;
+    const theoreticalGrossQty = recipeGrossKg;
+
+    // For standard kg items, prefill with theoreticalGrossQty; for non-standard units (e.g. tin), let user select variant & enter tin qty
+    const actualIssued = isRmNonStd ? '' : theoreticalGrossQty;
+    const actualIssuedNum = parseFloat(actualIssued) || 0;
+    const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
+    const remaining = parseFloat((availStock - previouslyIssued - actualIssuedNum).toFixed(3));
+    cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssuedNum);
+
+    return {
+      rowKey,
+      rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
+      materialName: matchedRm ? matchedRm.name : ing.materialName,
+      edibleBase: Number(ing.edibleQuantity || 0),
+      lossFactor: Number(ing.lossFactor) || 1.0,
+      unitMultiplier,
+      recipeEdibleKg,
+      recipeGrossKg,
+      variants,
+      unitWeightKg: selectedVariantKg,
+      theoreticalEdibleQty,
+      theoreticalGrossQty,
+      availableStock: availStock,
+      actualIssuedQty: actualIssued,
+      remainingStock: remaining,
+      unit: stockUnit,
+      stockUnit,
+      recipeUnit: targetUnit,
+      notes: ing.notes || ''
+    };
+  };
+
   const recalculateIssueItems = (rec, ord, batchesVal, currentMaterials) => {
     const materials = currentMaterials || rawMaterials;
     const bNum = parseFloat(batchesVal);
@@ -163,42 +251,8 @@ const MaterialIssue = () => {
 
     if (rec && rec.ingredients) {
       rec.ingredients.forEach((ing, ingIdx) => {
-        let unitMultiplier = 1;
-        if (ing.unit === 'g' || ing.unit === 'gm') unitMultiplier = 0.001;
-        if (ing.unit === 'ml') unitMultiplier = 0.001;
-
-        const edibleQty = parseFloat((Number(ing.edibleQuantity || 0) * validBatches).toFixed(3));
-        const theoreticalGross = parseFloat(((Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0)) * validBatches).toFixed(3));
-        const targetUnit = ing.unit === 'g' || ing.unit === 'gm' ? 'kg' : (ing.unit === 'ml' ? 'L' : (ing.unit || 'kg'));
-
-        const matchedRm = materials.find((rm) =>
-          (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
-          rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
-        );
-
-        const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
-        const availStock = matchedRm ? (matchedRm.currentStock || 0) : 0;
-        const actualIssued = theoreticalGross;
-
-        const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
-        const remaining = parseFloat((availStock - previouslyIssued - actualIssued).toFixed(3));
-        cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssued);
-
-        items.push({
-          rowKey: `${rmKey}_${ingIdx}`,
-          rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
-          materialName: matchedRm ? matchedRm.name : ing.materialName,
-          edibleBase: Number(ing.edibleQuantity || 0),
-          lossFactor: Number(ing.lossFactor) || 1.0,
-          unitMultiplier,
-          theoreticalEdibleQty: edibleQty,
-          theoreticalGrossQty: theoreticalGross,
-          availableStock: availStock,
-          actualIssuedQty: actualIssued,
-          remainingStock: remaining,
-          unit: matchedRm ? matchedRm.baseUnit : targetUnit,
-          notes: ing.notes || ''
-        });
+        const rmKey = ing.rawMaterial || ing.materialName.trim().toLowerCase();
+        items.push(buildIssueRow(ing, `${rmKey}_${ingIdx}`, validBatches, materials, cumulativeIssuedByRm));
       });
     } else if (ord && ord.items) {
       ord.items.forEach((item, ordItemIdx) => {
@@ -206,47 +260,28 @@ const MaterialIssue = () => {
         if (!recipe || !recipe.ingredients) return;
 
         recipe.ingredients.forEach((ing, ingIdx) => {
-          let unitMultiplier = 1;
-          if (ing.unit === 'g' || ing.unit === 'gm') unitMultiplier = 0.001;
-          if (ing.unit === 'ml') unitMultiplier = 0.001;
-
-          const edibleQty = parseFloat((Number(ing.edibleQuantity || 0) * validBatches).toFixed(3));
-          const theoreticalGross = parseFloat(((Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0)) * validBatches).toFixed(3));
-          const targetUnit = ing.unit === 'g' || ing.unit === 'gm' ? 'kg' : (ing.unit === 'ml' ? 'L' : (ing.unit || 'kg'));
-
-          const matchedRm = materials.find((rm) =>
-            (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
-            rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
+          const rmKey = ing.rawMaterial || ing.materialName.trim().toLowerCase();
+          items.push(
+            buildIssueRow(ing, `${rmKey}_${ordItemIdx}_${ingIdx}`, validBatches, materials, cumulativeIssuedByRm)
           );
-
-          const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
-          const availStock = matchedRm ? (matchedRm.currentStock || 0) : 0;
-          const actualIssued = theoreticalGross;
-
-          const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
-          const remaining = parseFloat((availStock - previouslyIssued - actualIssued).toFixed(3));
-          cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssued);
-
-          items.push({
-            rowKey: `${rmKey}_${ordItemIdx}_${ingIdx}`,
-            rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
-            materialName: matchedRm ? matchedRm.name : ing.materialName,
-            edibleBase: Number(ing.edibleQuantity || 0),
-            lossFactor: Number(ing.lossFactor) || 1.0,
-            unitMultiplier,
-            theoreticalEdibleQty: edibleQty,
-            theoreticalGrossQty: theoreticalGross,
-            availableStock: availStock,
-            actualIssuedQty: actualIssued,
-            remainingStock: remaining,
-            unit: matchedRm ? matchedRm.baseUnit : targetUnit,
-            notes: ing.notes || ''
-          });
         });
       });
     }
 
     setIssueItems(items);
+  };
+
+  const handleVariantChange = (idx, newVariantVal) => {
+    const variantKg = parseFloat(newVariantVal);
+    if (isNaN(variantKg) || variantKg <= 0) return;
+
+    const updated = [...issueItems];
+    updated[idx] = {
+      ...updated[idx],
+      unitWeightKg: variantKg
+    };
+
+    setIssueItems(updated);
   };
 
   const handleBatchesChange = (newVal) => {
@@ -603,42 +638,129 @@ const MaterialIssue = () => {
                   <tbody className="divide-y divide-white/5">
                     {issueItems.map((item, idx) => {
                       const isNegative = Number(item.remainingStock) < 0;
+                      const stockUnit = item.stockUnit || item.unit || 'kg';
+                      const recipeUnit = item.recipeUnit || 'kg';
+                      const isNonStd = isNonStandardUnit(stockUnit);
+                      const hasVariants = Array.isArray(item.variants) && item.variants.length > 0;
+                      const activeVariantKg = Number(item.unitWeightKg) || 0;
+                      const issuedUnitsNum = Number(item.actualIssuedQty) || 0;
+                      const issuedKgVal = isNonStd && activeVariantKg > 0 ? issuedUnitsNum * activeVariantKg : issuedUnitsNum;
+
                       return (
                         <tr key={item.rowKey || idx} className="hover:bg-white/5">
                           <td className="py-3 px-3 text-center font-mono text-gray-500">{idx + 1}</td>
-                          <td className="py-3 px-4 font-medium text-white">{item.materialName}</td>
+                          <td className="py-3 px-4 font-medium text-white">
+                            <div>{item.materialName}</div>
+                          </td>
                           <td className="py-3 px-4 text-right font-mono text-gray-300">
-                            {format3Decimals(item.theoreticalEdibleQty)} {item.unit}
+                            {format3Decimals(item.theoreticalEdibleQty)} {recipeUnit}
                           </td>
                           <td className="py-3 px-4 text-center font-mono text-orange-400">
                             {format3Decimals(item.lossFactor)}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-gray-200">
-                            {format3Decimals(item.theoreticalGrossQty)} {item.unit}
+                            {format3Decimals(item.theoreticalGrossQty)} {recipeUnit}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-cyan-300">
-                            {format3Decimals(item.availableStock)} {item.unit}
+                            {isNonStd && activeVariantKg > 0 ? (
+                              <div>
+                                <div>{format3Decimals(item.availableStock * activeVariantKg)} kg</div>
+                                <div className="text-[10px] text-cyan-400/75 font-normal">
+                                  ({format3Decimals(activeVariantKg)} kg × {format3Decimals(item.availableStock)} {stockUnit})
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                {format3Decimals(item.availableStock)} {stockUnit}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <input
-                              type="number"
-                              step="0.001"
-                              min="0"
-                              required
-                              value={item.actualIssuedQty}
-                              onChange={(e) => handleActualQtyChange(idx, e.target.value)}
-                              className="w-28 bg-black border border-primary/50 text-right rounded-lg px-2.5 py-1 text-xs text-primary font-mono font-bold focus:outline-none focus:border-primary"
-                            />
+                            {isNonStd ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                  {hasVariants ? (
+                                    <select
+                                      value={activeVariantKg || item.variants[0]}
+                                      onChange={(e) => handleVariantChange(idx, e.target.value)}
+                                      className="bg-black border border-emerald-500/50 rounded-lg px-2 py-1 text-xs text-emerald-300 font-mono font-semibold focus:outline-none focus:border-primary cursor-pointer"
+                                      title={`Select ${stockUnit} weight variant (in kg)`}
+                                    >
+                                      {item.variants.map((v, vIdx) => (
+                                        <option key={vIdx} value={v}>
+                                          {format3Decimals(v)} kg / {stockUnit}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min="0.001"
+                                        placeholder="Wt (kg)"
+                                        value={item.unitWeightKg || ''}
+                                        onChange={(e) => handleVariantChange(idx, e.target.value)}
+                                        className="w-20 bg-black border border-emerald-500/50 text-right rounded-lg px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-primary"
+                                      />
+                                      <span className="text-[10px] font-mono text-gray-400">kg/{stockUnit}</span>
+                                    </div>
+                                  )}
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    required
+                                    placeholder={`Qty (${stockUnit})`}
+                                    value={item.actualIssuedQty}
+                                    onChange={(e) => handleActualQtyChange(idx, e.target.value)}
+                                    className="w-24 bg-black border border-primary/50 text-right rounded-lg px-2.5 py-1 text-xs text-primary font-mono font-bold focus:outline-none focus:border-primary"
+                                  />
+                                  <span className="text-[11px] font-mono text-gray-300">{stockUnit}</span>
+                                </div>
+                                {activeVariantKg > 0 && (
+                                  <span className="text-[10px] font-mono text-emerald-400">
+                                    {format3Decimals(activeVariantKg)} kg × {format3Decimals(issuedUnitsNum)} {stockUnit} ={' '}
+                                    <strong>{format3Decimals(issuedKgVal)} kg</strong>
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  min="0"
+                                  required
+                                  value={item.actualIssuedQty}
+                                  onChange={(e) => handleActualQtyChange(idx, e.target.value)}
+                                  className="w-28 bg-black border border-primary/50 text-right rounded-lg px-2.5 py-1 text-xs text-primary font-mono font-bold focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-[11px] font-mono text-gray-400">{stockUnit}</span>
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold">
                             {isNegative ? (
                               <span className="inline-flex items-center gap-1 text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">
                                 <AlertTriangle className="w-3 h-3" />
-                                {format3Decimals(item.remainingStock)} {item.unit} (Deficit)
+                                {isNonStd && activeVariantKg > 0
+                                  ? `${format3Decimals(item.remainingStock * activeVariantKg)} kg (${format3Decimals(item.remainingStock)} ${stockUnit})`
+                                  : `${format3Decimals(item.remainingStock)} ${stockUnit}`}{' '}
+                                (Deficit)
                               </span>
+                            ) : isNonStd && activeVariantKg > 0 ? (
+                              <div className="flex flex-col items-end">
+                                <span className="text-emerald-400">
+                                  {format3Decimals(item.remainingStock * activeVariantKg)} kg
+                                </span>
+                                <span className="text-[10px] text-emerald-400/75 font-normal">
+                                  ({format3Decimals(activeVariantKg)} kg × {format3Decimals(item.remainingStock)} {stockUnit})
+                                </span>
+                              </div>
                             ) : (
                               <span className="text-emerald-400">
-                                {format3Decimals(item.remainingStock)} {item.unit}
+                                {format3Decimals(item.remainingStock)} {stockUnit}
                               </span>
                             )}
                           </td>
@@ -803,23 +925,53 @@ const MaterialIssue = () => {
                                             ? Number(item.closingStock)
                                             : Math.max(0, openingVal - issuedVal);
 
+                                        const isItNonStd = isNonStandardUnit(item.unit) && Number(item.unitWeightKg) > 0;
+                                        const wtKg = Number(item.unitWeightKg) || 0;
+
                                         return (
                                           <tr key={itIdx} className="hover:bg-white/5 transition-colors">
                                             <td className="py-2.5 px-3 font-mono text-gray-500">{itIdx + 1}</td>
                                             <td className="py-2.5 px-4 font-medium text-white">
-                                              {item.materialName}
+                                              <div>{item.materialName}</div>
                                             </td>
                                             <td className="py-2.5 px-4 text-right font-mono font-semibold text-cyan-300">
-                                              {format3Decimals(openingVal)} {item.unit || 'kg'}
+                                              {isItNonStd ? (
+                                                <div>
+                                                  <div>{format3Decimals(openingVal * wtKg)} kg</div>
+                                                  <div className="text-[10px] font-normal text-cyan-400/75">
+                                                    ({format3Decimals(wtKg)} kg × {format3Decimals(openingVal)} {item.unit})
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <span>{format3Decimals(openingVal)} {item.unit || 'kg'}</span>
+                                              )}
                                             </td>
                                             <td className="py-2.5 px-4 text-right font-mono font-bold text-primary">
-                                              - {format3Decimals(issuedVal)} {item.unit || 'kg'}
+                                              {isItNonStd ? (
+                                                <div>
+                                                  <div>- {format3Decimals(issuedVal * wtKg)} kg</div>
+                                                  <div className="text-[10px] font-normal text-emerald-400">
+                                                    ({format3Decimals(wtKg)} kg × {format3Decimals(issuedVal)} {item.unit})
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <div>- {format3Decimals(issuedVal)} {item.unit || 'kg'}</div>
+                                              )}
                                             </td>
                                             <td className="py-2.5 px-4 text-right font-mono font-semibold text-emerald-400">
-                                              {format3Decimals(closingVal)} {item.unit || 'kg'}
+                                              {isItNonStd ? (
+                                                <div>
+                                                  <div>{format3Decimals(closingVal * wtKg)} kg</div>
+                                                  <div className="text-[10px] font-normal text-emerald-400/75">
+                                                    ({format3Decimals(wtKg)} kg × {format3Decimals(closingVal)} {item.unit})
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <span>{format3Decimals(closingVal)} {item.unit || 'kg'}</span>
+                                              )}
                                             </td>
                                             <td className="py-2.5 px-4 text-right font-mono text-gray-400">
-                                              {format3Decimals(item.theoreticalGrossQty)} {item.unit || 'kg'}
+                                              {format3Decimals(item.recipeGrossKg || item.theoreticalGrossQty)} kg
                                             </td>
                                             <td className="py-2.5 px-3 text-center text-gray-400 font-mono">
                                               {item.unit || 'kg'}

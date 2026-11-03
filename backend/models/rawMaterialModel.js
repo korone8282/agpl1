@@ -29,6 +29,10 @@ const rawMaterialSchema = new mongoose.Schema(
             default: null,
             min: 0
         },
+        unitWeightVariants: {
+            type: [Number],
+            default: []
+        },
         currentStock: {
             type: Number,
             default: 0

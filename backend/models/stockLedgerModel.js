@@ -29,6 +29,10 @@ const stockLedgerSchema = new mongoose.Schema(
             type: String,
             default: 'kg'
         },
+        unitWeightKg: {
+            type: Number,
+            default: null
+        },
         rate: {
             type: Number,
             default: 0 // INR per unit

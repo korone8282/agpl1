@@ -8,6 +8,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { Layers, Search } from "lucide-react";
 import PageTransition from '../PageTransition';
 
+const norm = (str) => String(str || '').trim().toLowerCase();
+
 const BuyerProducts = () => {
   const [sectionData, setSectionData] = useState([]);
   const [loading, setLoading] = useState(1);
@@ -32,7 +34,9 @@ const BuyerProducts = () => {
       });
 
       setSectionData(
-        res.data.data.map((e) => e.dataList.filter((buyer) => buyer.buyerName === info.buyer))
+        res.data.data.map((e) =>
+          (e.dataList || []).filter((buyer) => norm(buyer.buyerName) === norm(info.buyer))
+        )
       );
 
       setLoading(0);
@@ -178,9 +182,9 @@ const BuyerProducts = () => {
 
                       <TableBody>
                         {products
-                          .filter((product) => product.buyer === info.buyer)
+                          .filter((product) => norm(product.buyer) === norm(info.buyer))
                           .slice()
-                          .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                          .sort((a, b) => (a.name || "").trim().localeCompare((b.name || "").trim()))
                           .map((element, index) => (
                             <TableRow key={index} className="hover:bg-white/[0.03] border-b border-white/5 transition-colors">
                               <TableCell className="font-mono text-xs text-zinc-500 py-3">{index + 1}</TableCell>
@@ -190,8 +194,8 @@ const BuyerProducts = () => {
                                   (acc, obj) =>
                                     acc +
                                     obj
-                                      .filter((item) => item.productName === element.name)
-                                      .reduce((accumulator, object) => accumulator + object.batchQuantity, 0),
+                                      .filter((item) => norm(item.productName) === norm(element.name))
+                                      .reduce((accumulator, object) => accumulator + (Number(object.batchQuantity) || 0), 0),
                                   0
                                 )}
                               </TableCell>
@@ -201,8 +205,8 @@ const BuyerProducts = () => {
                                     (acc, obj) =>
                                       acc +
                                       obj
-                                        .filter((item) => item.productName === element.name)
-                                        .reduce((accumulator, obj) => accumulator + obj.yield * obj.batchQuantity, 0),
+                                        .filter((item) => norm(item.productName) === norm(element.name))
+                                        .reduce((accumulator, obj) => accumulator + (Number(obj.yield) || 0) * (Number(obj.batchQuantity) || 0), 0),
                                     0
                                   )
                                   .toFixed(2)}
@@ -212,8 +216,8 @@ const BuyerProducts = () => {
                                   (acc, obj) =>
                                     acc +
                                     obj
-                                      .filter((item) => item.productName === element.name)
-                                      .reduce((accumulator, obj) => accumulator + obj.pouchQuantity, 0),
+                                      .filter((item) => norm(item.productName) === norm(element.name))
+                                      .reduce((accumulator, obj) => accumulator + (Number(obj.pouchQuantity) || 0), 0),
                                   0
                                 )}
                               </TableCell>
@@ -222,8 +226,8 @@ const BuyerProducts = () => {
                                   (acc, obj) =>
                                     acc +
                                     obj
-                                      .filter((item) => item.productName === element.name)
-                                      .reduce((accumulator, obj) => accumulator + obj.pouchPacked, 0),
+                                      .filter((item) => norm(item.productName) === norm(element.name))
+                                      .reduce((accumulator, obj) => accumulator + (Number(obj.pouchPacked) || 0), 0),
                                   0
                                 )}
                               </TableCell>
@@ -232,34 +236,25 @@ const BuyerProducts = () => {
                                   (acc, obj) =>
                                     acc +
                                     obj
-                                      .filter((item) => item.productName === element.name)
-                                      .reduce((accumulator, obj) => accumulator + obj.empty, 0),
+                                      .filter((item) => norm(item.productName) === norm(element.name))
+                                      .reduce(
+                                        (accumulator, obj) =>
+                                          accumulator +
+                                          (Number(obj.empty) || 0) +
+                                          (Number(obj.leaked) || 0) +
+                                          (Number(obj.foreignMatter) || 0),
+                                        0
+                                      ),
                                   0
-                                ) +
-                                  sectionData.reduce(
-                                    (acc, obj) =>
-                                      acc +
-                                      obj
-                                        .filter((item) => item.productName === element.name)
-                                        .reduce((accumulator, obj) => accumulator + obj.leaked, 0),
-                                    0
-                                  ) +
-                                  sectionData.reduce(
-                                    (acc, obj) =>
-                                      acc +
-                                      obj
-                                        .filter((item) => item.productName === element.name)
-                                        .reduce((accumulator, obj) => accumulator + obj.foreignMatter, 0),
-                                    0
-                                  )}
+                                )}
                               </TableCell>
                               <TableCell className="font-mono text-xs text-zinc-200 py-3">
                                 {sectionData.reduce(
                                   (acc, obj) =>
                                     acc +
                                     obj
-                                      .filter((item) => item.productName === element.name)
-                                      .reduce((accumulator, obj) => accumulator + obj.box, 0),
+                                      .filter((item) => norm(item.productName) === norm(element.name))
+                                      .reduce((accumulator, obj) => accumulator + (Number(obj.box) || 0), 0),
                                   0
                                 )}
                               </TableCell>

@@ -166,7 +166,7 @@ const Left = () => {
                     buyer: e.target.value,
                     product: "",
                   }));
-                  let p = products.filter((item) => item.buyer === e.target.value);
+                  let p = products.filter((item) => (item.buyer || "").trim().toLowerCase() === (e.target.value || "").trim().toLowerCase());
                   setproducts2(p);
                 }}
               >
@@ -188,7 +188,7 @@ const Left = () => {
               >
                 <option value="">All Products</option>
                 {products2
-                  ?.filter((product) => product.buyer === info.buyer)
+                  ?.filter((product) => (product.buyer || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase())
                   .map((val, index) => (
                     <option value={val.name} key={index}>
                       {val.name}
@@ -261,11 +261,11 @@ const Left = () => {
                             .map((val) =>
                               val.dataList
                                 .filter((object) => {
-                                  const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                  const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                   if (info.product) {
-                                    return matchesSearch && object.productName === info.product;
+                                    return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                   } else if (info.buyer) {
-                                    return matchesSearch && object.buyerName === info.buyer;
+                                    return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                   }
                                   return matchesSearch;
                                 })
@@ -310,11 +310,11 @@ const Left = () => {
                                     acc +
                                     obj.dataList
                                       .filter((object) => {
-                                        const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                        const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                         if (info.product) {
-                                          return matchesSearch && object.productName === info.product;
+                                          return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                         } else if (info.buyer) {
-                                          return matchesSearch && object.buyerName === info.buyer;
+                                          return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                         }
                                         return matchesSearch;
                                       })
@@ -331,11 +331,11 @@ const Left = () => {
                                     acc +
                                     obj.dataList
                                       .filter((object) => {
-                                        const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                        const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                         if (info.product) {
-                                          return matchesSearch && object.productName === info.product;
+                                          return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                         } else if (info.buyer) {
-                                          return matchesSearch && object.buyerName === info.buyer;
+                                          return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                         }
                                         return matchesSearch;
                                       })
@@ -352,11 +352,11 @@ const Left = () => {
                                     acc +
                                     obj.dataList
                                       .filter((object) => {
-                                        const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                        const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                         if (info.product) {
-                                          return matchesSearch && object.productName === info.product;
+                                          return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                         } else if (info.buyer) {
-                                          return matchesSearch && object.buyerName === info.buyer;
+                                          return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                         }
                                         return matchesSearch;
                                       })

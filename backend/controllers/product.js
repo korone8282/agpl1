@@ -163,6 +163,10 @@ exports.readProduct = async(req,res) => {
                 }
 
 
+function normStr(s) {
+    return String(s || '').trim().toLowerCase();
+}
+
 exports.updateDispProduct = async(req,res) => {
                 try {
                       
@@ -171,11 +175,9 @@ exports.updateDispProduct = async(req,res) => {
                 const {buyer,box,dispatched,issue,month,product} = req.body;
 
                 const days = [31,29,31,30,31,30,31,31,30,31,30,31];
-                    
-                const startDate = new Date(`2026-${month}-01`);
-                startDate.setHours(0, 0, 0, 0);
-                const endDate = new Date(`2026-${month}-${days[month-1]}`);
-                endDate.setHours(23, 59, 59, 999);
+                const mIdx = Number(month) - 1;
+                const startDate = new Date(Date.UTC(2026, mIdx, 1, 0, 0, 0, 0));
+                const endDate = new Date(Date.UTC(2026, mIdx, days[mIdx] || 31, 23, 59, 59, 999));
 
                 const existData = await Data.find({createdAt:{
                     $gte:startDate,
@@ -191,7 +193,7 @@ exports.updateDispProduct = async(req,res) => {
                 if(dispatched && issue && box){
 
                     existProduct.dispatched[month-1].dispatch = parseInt(dispatched) + (existProduct.dispatched[month-1].dispatch || 0);
-                    existProduct.dispatched[month-1].balance = ( existData.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === product && item.buyerName === buyer ).reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0) -  existProduct.dispatched[month-1].dispatch ) 
+                    existProduct.dispatched[month-1].balance = ( existData.reduce((acc,obj)=> acc+(obj.dataList || []).filter(item=>normStr(item.productName) === normStr(product) && normStr(item.buyerName) === normStr(buyer) ).reduce( (accumulator, obj) => accumulator + (Number(obj.pouchPacked) || 0),0),0) -  existProduct.dispatched[month-1].dispatch ) 
             
                        await Dispatch.create({
                             buyerName:buyer,
@@ -221,11 +223,13 @@ exports.updateDispProduct = async(req,res) => {
 function sumFillingUsage(existData, productName, buyerName) {
                 let filled = 0;
                 let waste = 0;
+                const pNorm = normStr(productName);
+                const bNorm = normStr(buyerName);
                 existData
                     .filter((doc) => doc.sectionMain === "Filling")
                     .forEach((doc) => {
                         (doc.dataList || []).forEach((item) => {
-                            if (item.productName === productName && item.buyerName === buyerName) {
+                            if (normStr(item.productName) === pNorm && normStr(item.buyerName) === bNorm) {
                                 filled += Number(item.pouchQuantity) || 0;
                                 waste += Number(item.empty) || 0;
                             }
@@ -244,9 +248,8 @@ exports.updatePouches = async(req,res) => {
                 const qty = parseInt(pouches, 10);
 
                 const days = [31,29,31,30,31,30,31,31,30,31,30,31];
-                const year = new Date().getFullYear();
-                const startDate = new Date(year, monthIndex, 1, 0, 0, 0, 0);
-                const endDate = new Date(year, monthIndex, days[monthIndex] || 31, 23, 59, 59, 999);
+                const startDate = new Date(Date.UTC(2026, monthIndex, 1, 0, 0, 0, 0));
+                const endDate = new Date(Date.UTC(2026, monthIndex, days[monthIndex] || 31, 23, 59, 59, 999));
 
                 const existData = await Data.find({
                     createdAt: {
@@ -310,47 +313,56 @@ exports.updatePouches = async(req,res) => {
 
 exports.updaterOne = async(req,res) => {
                 try {
-                   
-                const existProduct = await Product.find({ });
+                const existProduct = await Product.find({});
+                const startOfYear = new Date(Date.UTC(2026, 0, 1, 0, 0, 0, 0));
+                const endOfYear = new Date(Date.UTC(2026, 11, 31, 23, 59, 59, 999));
 
-                const days = [31,29,31,30,31,30,31,31,30,31,30,31];
+                const allYearData = await Data.find({
+                    createdAt: {
+                        $gte: startOfYear,
+                        $lte: endOfYear
+                    }
+                });
 
-                for(let i=1; i<13;i++){
-
-                    const startDate = new Date(`2026-${i}-01`);
-                    startDate.setHours(0, 0, 0, 0);
-                    const endDate = new Date(`2026-${i}-${days[i-1]}`);
-                    endDate.setHours(23, 59, 59, 999);
-
-                    const existData = await Data.find({createdAt:{
-                        $gte:startDate,
-                        $lte:endDate
-                    } });
- 
-
-                for(let index=0; index < existProduct.length ;index++){
-
-                const newProduct = existProduct[index];
-
-                newProduct.dispatched[i-1].balance = ( existData.reduce((acc,obj)=> acc+obj.dataList.filter(item=>item.productName === newProduct.name && item.buyerName === newProduct.buyer).reduce( (accumulator, obj) => accumulator + obj.pouchPacked,0),0) -  ( newProduct.dispatched[i-1].dispatch ? newProduct.dispatched[i-1].dispatch : 0 ))  
-                   
-                const { filled, waste } = sumFillingUsage(existData, newProduct.name, newProduct.buyer);
-                const stock = Number(newProduct.pouches[i-1].stock) || 0;
-                const prevBalance = i === 1
-                    ? 0
-                    : (Number(newProduct.pouches[i - 2]?.remain) || 0);
-                // Store ending balance so next month can use it as Previous Balance
-                newProduct.pouches[i-1].remain = prevBalance + stock - filled - waste;
-
-                await newProduct.save();
-
-                    }     
+                const docsByMonth = Array.from({ length: 12 }, () => []);
+                for (const doc of allYearData) {
+                    const mIdx = new Date(doc.createdAt).getUTCMonth();
+                    if (mIdx >= 0 && mIdx < 12) {
+                        docsByMonth[mIdx].push(doc);
+                    }
                 }
 
-                    res.status(200).json({
-                        success:true,
-                    });
-                
+                for (let index = 0; index < existProduct.length; index++) {
+                    const newProduct = existProduct[index];
+                    const pNorm = normStr(newProduct.name);
+                    const bNorm = normStr(newProduct.buyer);
+
+                    for (let mIdx = 0; mIdx < 12; mIdx++) {
+                        const existData = docsByMonth[mIdx];
+                        const packedSum = existData.reduce(
+                            (acc, obj) =>
+                                acc +
+                                (obj.dataList || [])
+                                    .filter((item) => normStr(item.productName) === pNorm && normStr(item.buyerName) === bNorm)
+                                    .reduce((accumulator, obj) => accumulator + (Number(obj.pouchPacked) || 0), 0),
+                            0
+                        );
+
+                        newProduct.dispatched[mIdx].balance =
+                            packedSum - (newProduct.dispatched[mIdx]?.dispatch ? Number(newProduct.dispatched[mIdx].dispatch) : 0);
+
+                        const { filled, waste } = sumFillingUsage(existData, newProduct.name, newProduct.buyer);
+                        const stock = Number(newProduct.pouches[mIdx]?.stock) || 0;
+                        const prevBalance = mIdx === 0 ? 0 : (Number(newProduct.pouches[mIdx - 1]?.remain) || 0);
+                        newProduct.pouches[mIdx].remain = prevBalance + stock - filled - waste;
+                    }
+                }
+
+                await Promise.all(existProduct.map((p) => p.save()));
+
+                res.status(200).json({
+                    success:true,
+                });
                 } catch (error) {
                     console.log(error);
                     res.status(400).json({

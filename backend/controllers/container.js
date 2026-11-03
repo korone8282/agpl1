@@ -53,9 +53,9 @@ exports.readData = async(req,res) => {
         const {start,end} = req.body;
         
         const startDate = new Date(start);
-        startDate.setHours(0, 0, 0, 0);
+        startDate.setUTCHours(0, 0, 0, 0);
         const endDate = new Date(end);
-        endDate.setHours(23, 59, 59, 999);
+        endDate.setUTCHours(23, 59, 59, 999);
       
         const existData = await Data.find({createdAt:{
             $gte:startDate,

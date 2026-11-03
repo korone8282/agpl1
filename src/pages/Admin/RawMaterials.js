@@ -56,12 +56,24 @@ const isNonStandardUnit = (unit) => {
   return !['kg', 'kgs', 'g', 'gm', 'gms', 'l', 'ltr', 'ml'].includes(u);
 };
 
+const getMaterialVariants = (mat) => {
+  if (!mat) return [];
+  const arr = Array.isArray(mat.unitWeightVariants)
+    ? mat.unitWeightVariants.map(Number).filter((n) => !isNaN(n) && n > 0)
+    : [];
+  if (arr.length === 0 && mat.unitWeightKg && Number(mat.unitWeightKg) > 0) {
+    arr.push(Number(mat.unitWeightKg));
+  }
+  return arr;
+};
+
 const RawMaterials = () => {
   const navigate = useNavigate();
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('ALL'); // ALL, Cold, Ambient, LOW_STOCK
   const [search, setSearch] = useState('');
+  const [selectedTableVariants, setSelectedTableVariants] = useState({});
 
   // History Modal View State (PURCHASE, FEFO, USAGE)
   const [historyTab, setHistoryTab] = useState('PURCHASE');
@@ -82,6 +94,7 @@ const RawMaterials = () => {
     storageType: 'Ambient',
     baseUnit: 'kg',
     unitWeightKg: '',
+    unitWeightVariants: [''],
     currentStock: 0,
     leadTimeDays: 1
   });
@@ -92,7 +105,8 @@ const RawMaterials = () => {
     baseUnit: 'kg',
     isCustomUnit: false,
     customUnit: '',
-    unitWeightKg: ''
+    unitWeightKg: '',
+    unitWeightVariants: ['']
   });
   const [savingUnit, setSavingUnit] = useState(false);
 
@@ -100,6 +114,7 @@ const RawMaterials = () => {
     rawMaterialId: '',
     adjustmentType: 'WRITE_OFF',
     quantity: '',
+    unitWeightKg: '',
     reason: '',
     createdBy: 'Store In-charge'
   });
@@ -140,13 +155,16 @@ const RawMaterials = () => {
       return;
     }
     try {
+      const validVariants = isNonStandardUnit(finalUnit)
+        ? (newMaterial.unitWeightVariants || [])
+            .map((v) => parseFloat(v))
+            .filter((n) => !isNaN(n) && n > 0)
+        : [];
       const payload = {
         ...newMaterial,
         baseUnit: finalUnit,
-        unitWeightKg:
-          isNonStandardUnit(finalUnit) && newMaterial.unitWeightKg !== '' && Number(newMaterial.unitWeightKg) > 0
-            ? Number(newMaterial.unitWeightKg)
-            : null
+        unitWeightVariants: validVariants,
+        unitWeightKg: validVariants.length > 0 ? validVariants[0] : null
       };
       const res = await apiConnector(`${INVENTORY_MRP_URL}/raw-materials`, 'POST', payload);
       if (res.data?.success) {
@@ -159,6 +177,7 @@ const RawMaterials = () => {
           storageType: 'Ambient',
           baseUnit: 'kg',
           unitWeightKg: '',
+          unitWeightVariants: [''],
           currentStock: 0,
           leadTimeDays: 1
         });
@@ -172,12 +191,14 @@ const RawMaterials = () => {
   const openUnitEditModal = (mat) => {
     const knownValues = UNIT_OPTIONS.filter(o => o.value !== 'custom').map(o => o.value);
     const isCustom = mat.baseUnit && !knownValues.includes(mat.baseUnit);
+    const existingVariants = getMaterialVariants(mat);
     setEditingUnitMaterial(mat);
     setEditUnitForm({
       baseUnit: isCustom ? 'custom' : (mat.baseUnit || 'kg'),
       isCustomUnit: Boolean(isCustom),
       customUnit: isCustom ? mat.baseUnit : '',
-      unitWeightKg: mat.unitWeightKg !== null && mat.unitWeightKg !== undefined ? String(mat.unitWeightKg) : ''
+      unitWeightKg: existingVariants.length > 0 ? String(existingVariants[0]) : '',
+      unitWeightVariants: existingVariants.length > 0 ? existingVariants.map(String) : ['']
     });
   };
 
@@ -191,16 +212,19 @@ const RawMaterials = () => {
     }
     try {
       setSavingUnit(true);
+      const validVariants = isNonStandardUnit(finalUnit)
+        ? (editUnitForm.unitWeightVariants || [])
+            .map((v) => parseFloat(v))
+            .filter((n) => !isNaN(n) && n > 0)
+        : [];
       const payload = {
         baseUnit: finalUnit,
-        unitWeightKg:
-          isNonStandardUnit(finalUnit) && editUnitForm.unitWeightKg !== '' && Number(editUnitForm.unitWeightKg) > 0
-            ? Number(editUnitForm.unitWeightKg)
-            : null
+        unitWeightVariants: validVariants,
+        unitWeightKg: validVariants.length > 0 ? validVariants[0] : null
       };
       const res = await apiConnector(`${INVENTORY_MRP_URL}/raw-materials/${editingUnitMaterial._id}`, 'PUT', payload);
       if (res.data?.success) {
-        toast.success(`Updated unit settings for "${editingUnitMaterial.name}"`);
+        toast.success(`Updated unit & variants for "${editingUnitMaterial.name}"`);
         setEditingUnitMaterial(null);
         fetchMaterials();
       }
@@ -226,6 +250,7 @@ const RawMaterials = () => {
           rawMaterialId: '',
           adjustmentType: 'WRITE_OFF',
           quantity: '',
+          unitWeightKg: '',
           reason: '',
           createdBy: 'Store In-charge'
         });
@@ -537,34 +562,71 @@ const RawMaterials = () => {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-right font-mono font-semibold text-white">
-                          <div className="flex flex-col items-end gap-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span>{format3Decimals(m.currentStock)}</span>
-                              <span className="text-gray-400 text-xs font-normal">{m.baseUnit}</span>
-                              <button
-                                type="button"
-                                onClick={() => openUnitEditModal(m)}
-                                title="Change unit or set Kg equivalent per unit"
-                                className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
-                              >
-                                <Scale className="w-3 h-3" />
-                              </button>
-                            </div>
-                            {isNonStandardUnit(m.baseUnit) && m.unitWeightKg > 0 && (
-                              <div className="text-[10px] text-emerald-400 font-mono">
-                                1 {m.baseUnit} = {format3Decimals(m.unitWeightKg)} kg ({format3Decimals(m.currentStock * m.unitWeightKg)} kg)
+                          {(() => {
+                            const variants = getMaterialVariants(m);
+                            const activeVariant =
+                              selectedTableVariants[m._id] !== undefined
+                                ? Number(selectedTableVariants[m._id])
+                                : variants[0] || 0;
+                            return (
+                              <div className="flex flex-col items-end gap-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{format3Decimals(m.currentStock)}</span>
+                                  <span className="text-gray-400 text-xs font-normal">{m.baseUnit}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => openUnitEditModal(m)}
+                                    title="Change unit or manage Kg weight variants"
+                                    className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
+                                  >
+                                    <Scale className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                {isNonStandardUnit(m.baseUnit) && variants.length === 1 && (
+                                  <div className="text-[10px] text-emerald-400 font-mono">
+                                    1 {m.baseUnit} = {format3Decimals(variants[0])} kg ({format3Decimals(m.currentStock * variants[0])} kg)
+                                  </div>
+                                )}
+                                {isNonStandardUnit(m.baseUnit) && variants.length > 1 && (
+                                  <div className="flex flex-col items-end gap-1 mt-0.5">
+                                    <div className="flex items-center gap-1">
+                                      <select
+                                        value={activeVariant}
+                                        onChange={(e) =>
+                                          setSelectedTableVariants((prev) => ({
+                                            ...prev,
+                                            [m._id]: Number(e.target.value)
+                                          }))
+                                        }
+                                        className="bg-black border border-emerald-500/40 rounded px-1.5 py-0.5 text-[10px] text-emerald-300 font-mono focus:outline-none focus:border-primary cursor-pointer"
+                                      >
+                                        {variants.map((v, idx) => (
+                                          <option key={idx} value={v}>
+                                            1 {m.baseUnit} = {format3Decimals(v)} kg
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span className="text-[10px] text-emerald-400 font-mono">
+                                        ({format3Decimals(m.currentStock * activeVariant)} kg)
+                                      </span>
+                                    </div>
+                                    <div className="text-[9px] text-gray-400 font-mono">
+                                      Variants: {variants.map((v) => `${format3Decimals(v)}kg`).join(', ')}
+                                    </div>
+                                  </div>
+                                )}
+                                {isNonStandardUnit(m.baseUnit) && variants.length === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openUnitEditModal(m)}
+                                    className="text-[10px] text-amber-400 hover:text-amber-300 underline font-sans"
+                                  >
+                                    + Set 1 {m.baseUnit} in Kg (Variants)
+                                  </button>
+                                )}
                               </div>
-                            )}
-                            {isNonStandardUnit(m.baseUnit) && (!m.unitWeightKg || m.unitWeightKg <= 0) && (
-                              <button
-                                type="button"
-                                onClick={() => openUnitEditModal(m)}
-                                className="text-[10px] text-amber-400 hover:text-amber-300 underline font-sans"
-                              >
-                                + Set 1 {m.baseUnit} in Kg
-                              </button>
-                            )}
-                          </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-4 px-4 text-center">
                           {m.earliestExpiryDate ? (
@@ -723,37 +785,76 @@ const RawMaterials = () => {
                   </div>
                 </div>
 
-                {/* Non-Standard Unit -> Kg Conversion Field */}
+                {/* Non-Standard Unit -> Multiple Kg Variants Field */}
                 {(isCustomUnit || isNonStandardUnit(newMaterial.baseUnit)) && (
-                  <div className="p-3.5 bg-primary/10 border border-primary/30 rounded-xl space-y-2">
+                  <div className="p-3.5 bg-primary/10 border border-primary/30 rounded-xl space-y-2.5">
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-semibold text-primary flex items-center gap-1.5">
                         <Scale className="w-3.5 h-3.5" />
-                        1 {(isCustomUnit ? customUnit : newMaterial.baseUnit) || 'unit'} equals how many Kg?
+                        1 {(isCustomUnit ? customUnit : newMaterial.baseUnit) || 'unit'} Weight Variants (in Kg)
                       </label>
-                      {Number(newMaterial.unitWeightKg) > 0 && Number(newMaterial.currentStock) > 0 && (
-                        <span className="text-[11px] font-mono text-emerald-400">
-                          Total = {format3Decimals(Number(newMaterial.currentStock) * Number(newMaterial.unitWeightKg))} kg
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewMaterial({
+                            ...newMaterial,
+                            unitWeightVariants: [...(newMaterial.unitWeightVariants || ['']), '']
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add Variant
+                      </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-gray-300 whitespace-nowrap">
-                        1 {(isCustomUnit ? customUnit : newMaterial.baseUnit) || 'unit'} =
-                      </span>
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        placeholder="Enter weight in kg"
-                        value={newMaterial.unitWeightKg}
-                        onChange={(e) => setNewMaterial({ ...newMaterial, unitWeightKg: e.target.value })}
-                        className="w-full bg-black border border-white/15 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary font-mono"
-                      />
-                      <span className="text-xs font-mono text-gray-300">kg</span>
+
+                    <div className="space-y-2">
+                      {(newMaterial.unitWeightVariants || ['']).map((variantVal, vIdx) => (
+                        <div key={vIdx} className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-gray-300 whitespace-nowrap">
+                            Variant {vIdx + 1}: 1 {(isCustomUnit ? customUnit : newMaterial.baseUnit) || 'unit'} =
+                          </span>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            placeholder={vIdx === 0 ? 'e.g. 0.75' : 'e.g. 0.50'}
+                            value={variantVal}
+                            onChange={(e) => {
+                              const updated = [...(newMaterial.unitWeightVariants || [''])];
+                              updated[vIdx] = e.target.value;
+                              setNewMaterial({
+                                ...newMaterial,
+                                unitWeightVariants: updated,
+                                unitWeightKg: updated[0] || ''
+                              });
+                            }}
+                            className="w-full bg-black border border-white/15 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary font-mono"
+                          />
+                          <span className="text-xs font-mono text-gray-300">kg</span>
+                          {(newMaterial.unitWeightVariants || []).length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = newMaterial.unitWeightVariants.filter((_, i) => i !== vIdx);
+                                setNewMaterial({
+                                  ...newMaterial,
+                                  unitWeightVariants: updated.length ? updated : [''],
+                                  unitWeightKg: updated[0] || ''
+                                });
+                              }}
+                              className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
+                              title="Remove variant"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
+
                     <p className="text-[11px] text-gray-400">
-                      Used to automatically convert between {(isCustomUnit ? customUnit : newMaterial.baseUnit) || 'units'} and kg in recipes & stock calculations.
+                      Add one or more weight variants (e.g. 0.75 kg and 0.5 kg). These variants will appear as a dropdown in GRN Entry, Kitchen Store Issue, and Stock Ledger.
                     </p>
                   </div>
                 )}
@@ -951,7 +1052,16 @@ const RawMaterials = () => {
                   <select
                     required
                     value={adjustment.rawMaterialId}
-                    onChange={(e) => setAdjustment({ ...adjustment, rawMaterialId: e.target.value })}
+                    onChange={(e) => {
+                      const matId = e.target.value;
+                      const sel = materials.find((m) => m._id === matId);
+                      const vars = getMaterialVariants(sel);
+                      setAdjustment({
+                        ...adjustment,
+                        rawMaterialId: matId,
+                        unitWeightKg: vars.length > 0 ? String(vars[0]) : ''
+                      });
+                    }}
                     className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
                   >
                     <option value="">-- Choose Ingredient --</option>
@@ -962,6 +1072,30 @@ const RawMaterials = () => {
                     ))}
                   </select>
                 </div>
+
+                {(() => {
+                  const sel = materials.find((m) => m._id === adjustment.rawMaterialId);
+                  const vars = getMaterialVariants(sel);
+                  if (!sel || !isNonStandardUnit(sel.baseUnit) || vars.length === 0) return null;
+                  return (
+                    <div>
+                      <label className="block text-xs font-medium text-primary mb-1">
+                        Select Variant ({sel.baseUnit} Weight in Kg)
+                      </label>
+                      <select
+                        value={adjustment.unitWeightKg || vars[0]}
+                        onChange={(e) => setAdjustment({ ...adjustment, unitWeightKg: e.target.value })}
+                        className="w-full bg-black border border-primary/40 rounded-xl px-3.5 py-2 text-sm text-emerald-300 font-mono focus:outline-none focus:border-primary"
+                      >
+                        {vars.map((v, idx) => (
+                          <option key={idx} value={v}>
+                            1 {sel.baseUnit} = {format3Decimals(v)} kg
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
 
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">Adjustment Type</label>
@@ -1414,32 +1548,88 @@ const RawMaterials = () => {
                 </div>
 
                 {(editUnitForm.isCustomUnit || isNonStandardUnit(editUnitForm.baseUnit)) && (
-                  <div className="p-3.5 bg-primary/10 border border-primary/30 rounded-xl space-y-2">
-                    <label className="block text-xs font-semibold text-primary">
-                      1 {(editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'unit'} equals how many Kg?
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-gray-300 whitespace-nowrap">
-                        1 {(editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'unit'} =
-                      </span>
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        placeholder="Enter weight in kg"
-                        value={editUnitForm.unitWeightKg}
-                        onChange={(e) => setEditUnitForm({ ...editUnitForm, unitWeightKg: e.target.value })}
-                        className="w-full bg-black border border-white/15 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary font-mono"
-                      />
-                      <span className="text-xs font-mono text-gray-300">kg</span>
+                  <div className="p-3.5 bg-primary/10 border border-primary/30 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-primary">
+                        1 {(editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'unit'} Weight Variants (in Kg)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditUnitForm({
+                            ...editUnitForm,
+                            unitWeightVariants: [...(editUnitForm.unitWeightVariants || ['']), '']
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add Variant
+                      </button>
                     </div>
-                    {Number(editUnitForm.unitWeightKg) > 0 && (
-                      <div className="text-[11px] font-mono text-emerald-400 pt-1">
-                        Current Stock ({format3Decimals(editingUnitMaterial.currentStock)}{' '}
-                        {(editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'units'}) ={' '}
-                        {format3Decimals(Number(editingUnitMaterial.currentStock || 0) * Number(editUnitForm.unitWeightKg))} kg
-                      </div>
-                    )}
+
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {(editUnitForm.unitWeightVariants || ['']).map((variantVal, vIdx) => (
+                        <div key={vIdx} className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-gray-300 whitespace-nowrap">
+                            Variant {vIdx + 1}: 1 {(editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'unit'} =
+                          </span>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            placeholder={vIdx === 0 ? 'e.g. 0.75' : 'e.g. 0.50'}
+                            value={variantVal}
+                            onChange={(e) => {
+                              const updated = [...(editUnitForm.unitWeightVariants || [''])];
+                              updated[vIdx] = e.target.value;
+                              setEditUnitForm({
+                                ...editUnitForm,
+                                unitWeightVariants: updated,
+                                unitWeightKg: updated[0] || ''
+                              });
+                            }}
+                            className="w-full bg-black border border-white/15 rounded-xl px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary font-mono"
+                          />
+                          <span className="text-xs font-mono text-gray-300">kg</span>
+                          {(editUnitForm.unitWeightVariants || []).length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = editUnitForm.unitWeightVariants.filter((_, i) => i !== vIdx);
+                                setEditUnitForm({
+                                  ...editUnitForm,
+                                  unitWeightVariants: updated.length ? updated : [''],
+                                  unitWeightKg: updated[0] || ''
+                                });
+                              }}
+                              className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
+                              title="Remove variant"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {(() => {
+                      const validNums = (editUnitForm.unitWeightVariants || [])
+                        .map((v) => parseFloat(v))
+                        .filter((n) => !isNaN(n) && n > 0);
+                      if (validNums.length === 0) return null;
+                      const unitLabel = (editUnitForm.isCustomUnit ? editUnitForm.customUnit : editUnitForm.baseUnit) || 'units';
+                      return (
+                        <div className="text-[11px] font-mono text-emerald-400 pt-1 space-y-0.5">
+                          {validNums.map((v, idx) => (
+                            <div key={idx}>
+                              • @ {format3Decimals(v)} kg/{unitLabel}: Current Stock ({format3Decimals(editingUnitMaterial.currentStock)} {unitLabel}) ={' '}
+                              {format3Decimals(Number(editingUnitMaterial.currentStock || 0) * v)} kg
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

@@ -38,6 +38,14 @@ const materialIssueItemSchema = new mongoose.Schema({
         type: String,
         default: 'kg'
     },
+    unitWeightKg: {
+        type: Number,
+        default: null
+    },
+    recipeGrossKg: {
+        type: Number,
+        default: null
+    },
     lotsUsed: [
         {
             ledgerId: { type: mongoose.Schema.Types.ObjectId, ref: 'StockLedger' },

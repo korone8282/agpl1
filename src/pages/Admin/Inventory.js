@@ -188,7 +188,7 @@ const Inventory = () => {
               >
                 <option value="">All Products</option>
                 {products2
-                  ?.filter((product) => product.buyer === info.buyer)
+                  ?.filter((product) => (product.buyer || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase())
                   .map((val, index) => (
                     <option value={val.name} key={index}>
                       {val.name}
@@ -260,11 +260,11 @@ const Inventory = () => {
                             .map((val) =>
                               val.dataList
                                 .filter((object) => {
-                                  const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                  const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                   if (info.product) {
-                                    return matchesSearch && object.productName === info.product;
+                                    return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                   } else if (info.buyer) {
-                                    return matchesSearch && object.buyerName === info.buyer;
+                                    return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                   }
                                   return matchesSearch;
                                 })
@@ -308,11 +308,11 @@ const Inventory = () => {
                                     acc +
                                     obj.dataList
                                       .filter((object) => {
-                                        const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                        const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                         if (info.product) {
-                                          return matchesSearch && object.productName === info.product;
+                                          return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                         } else if (info.buyer) {
-                                          return matchesSearch && object.buyerName === info.buyer;
+                                          return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                         }
                                         return matchesSearch;
                                       })
@@ -329,11 +329,11 @@ const Inventory = () => {
                                     acc +
                                     obj.dataList
                                       .filter((object) => {
-                                        const matchesSearch = object.batch.toLowerCase().startsWith(search.toLowerCase());
+                                        const matchesSearch = (object.batch || "").toLowerCase().startsWith(search.toLowerCase());
                                         if (info.product) {
-                                          return matchesSearch && object.productName === info.product;
+                                          return matchesSearch && (object.productName || "").trim().toLowerCase() === (info.product || "").trim().toLowerCase();
                                         } else if (info.buyer) {
-                                          return matchesSearch && object.buyerName === info.buyer;
+                                          return matchesSearch && (object.buyerName || "").trim().toLowerCase() === (info.buyer || "").trim().toLowerCase();
                                         }
                                         return matchesSearch;
                                       })

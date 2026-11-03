@@ -10,7 +10,9 @@ import {
   Search,
   Edit2,
   AlertTriangle,
-  X
+  X,
+  ChevronDown,
+  Copy
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL } from '../../redux/Utils/constants';
@@ -22,6 +24,24 @@ const format3Decimals = (val) => {
   const num = Number(val);
   if (isNaN(num)) return '0';
   return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+};
+
+const isNonStandardUnit = (unit) => {
+  if (!unit) return false;
+  const u = String(unit).trim().toLowerCase();
+  if (!u) return false;
+  return !['kg', 'kgs', 'g', 'gm', 'gms', 'l', 'ltr', 'ml'].includes(u);
+};
+
+const getMaterialVariants = (mat) => {
+  if (!mat) return [];
+  const arr = Array.isArray(mat.unitWeightVariants)
+    ? mat.unitWeightVariants.map(Number).filter((n) => !isNaN(n) && n > 0)
+    : [];
+  if (arr.length === 0 && mat.unitWeightKg && Number(mat.unitWeightKg) > 0) {
+    arr.push(Number(mat.unitWeightKg));
+  }
+  return arr;
 };
 
 const getLocalDateStr = (d = new Date()) => {
@@ -47,6 +67,7 @@ const GoodsReceipt = () => {
     rawMaterialId: '',
     quantity: '',
     rate: '',
+    unitWeightKg: '',
     lotNumber: '',
     expiryDate: '',
     receivedDate: '',
@@ -58,6 +79,7 @@ const GoodsReceipt = () => {
 
   const [deletingEntry, setDeletingEntry] = useState(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [showAddRowMenu, setShowAddRowMenu] = useState(false);
 
   // GRN Form State
   const [grnForm, setGrnForm] = useState({
@@ -66,7 +88,7 @@ const GoodsReceipt = () => {
     vendorName: '',
     receivedDate: getLocalDateStr(),
     items: [
-      { rawMaterialId: '', quantityReceived: '', purchaseRate: '', lotNumber: '', expiryDate: '' }
+      { rawMaterialId: '', quantityReceived: '', purchaseRate: '', unitWeightKg: '', lotNumber: '', expiryDate: '' }
     ]
   });
 
@@ -92,14 +114,24 @@ const GoodsReceipt = () => {
     }
   };
 
-  const addItemRow = () => {
+  const addItemRow = (mode = 'NEW') => {
+    const prevRow = grnForm.items.length > 0 ? grnForm.items[grnForm.items.length - 1] : null;
+    const isCopy = mode === 'COPY' && prevRow;
     setGrnForm({
       ...grnForm,
       items: [
         ...grnForm.items,
-        { rawMaterialId: '', quantityReceived: '', purchaseRate: '', lotNumber: '', expiryDate: '' }
+        {
+          rawMaterialId: '',
+          quantityReceived: '',
+          purchaseRate: '',
+          unitWeightKg: '',
+          lotNumber: isCopy ? prevRow.lotNumber || '' : '',
+          expiryDate: isCopy ? prevRow.expiryDate || '' : ''
+        }
       ]
     });
+    setShowAddRowMenu(false);
   };
 
   const removeItemRow = (idx) => {
@@ -110,6 +142,11 @@ const GoodsReceipt = () => {
   const updateItemRow = (idx, field, value) => {
     const updated = [...grnForm.items];
     updated[idx][field] = value;
+    if (field === 'rawMaterialId') {
+      const mat = materials.find((m) => m._id === value);
+      const vars = getMaterialVariants(mat);
+      updated[idx].unitWeightKg = isNonStandardUnit(mat?.baseUnit) && vars.length > 0 ? String(vars[0]) : '';
+    }
     setGrnForm({ ...grnForm, items: updated });
   };
 
@@ -137,7 +174,7 @@ const GoodsReceipt = () => {
           vendorName: '',
           receivedDate: getLocalDateStr(),
           items: [
-            { rawMaterialId: '', quantityReceived: '', purchaseRate: '', lotNumber: '', expiryDate: '' }
+            { rawMaterialId: '', quantityReceived: '', purchaseRate: '', unitWeightKg: '', lotNumber: '', expiryDate: '' }
           ]
         });
         fetchData();
@@ -150,11 +187,20 @@ const GoodsReceipt = () => {
   };
 
   const handleOpenEditModal = (entry) => {
+    const matId = entry.rawMaterial?._id || entry.rawMaterial || '';
+    const mat = materials.find((m) => m._id === matId) || entry.rawMaterial;
+    const vars = getMaterialVariants(mat);
     setEditingEntry(entry);
     setEditForm({
-      rawMaterialId: entry.rawMaterial?._id || entry.rawMaterial || '',
+      rawMaterialId: matId,
       quantity: entry.quantity !== undefined ? entry.quantity : '',
       rate: entry.rate !== undefined ? entry.rate : '',
+      unitWeightKg:
+        entry.unitWeightKg !== undefined && entry.unitWeightKg !== null
+          ? String(entry.unitWeightKg)
+          : vars.length > 0
+          ? String(vars[0])
+          : '',
       lotNumber: entry.lotNumber || '',
       expiryDate: entry.expiryDate ? getLocalDateStr(entry.expiryDate) : '',
       receivedDate: entry.createdAt ? getLocalDateStr(entry.createdAt) : '',
@@ -331,92 +377,192 @@ const GoodsReceipt = () => {
                 <span className="text-xs font-semibold uppercase tracking-wider text-primary">
                   Inward Materials & Purchase Prices
                 </span>
-                <button
-                  type="button"
-                  onClick={addItemRow}
-                  className="flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Material Row
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddRowMenu((prev) => !prev)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-xs font-semibold text-primary hover:bg-primary/25 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Material Row</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+
+                  {showAddRowMenu && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setShowAddRowMenu(false)}
+                      />
+                      <div className="absolute right-0 mt-1.5 w-64 rounded-xl bg-zinc-950 border border-white/15 shadow-2xl z-20 overflow-hidden divide-y divide-white/10">
+                        <button
+                          type="button"
+                          onClick={() => addItemRow('NEW')}
+                          className="w-full px-3.5 py-2.5 text-left hover:bg-white/10 transition-colors flex items-start gap-2.5"
+                        >
+                          <Plus className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          <div>
+                            <div className="text-xs font-semibold text-white">Create New Row</div>
+                            <div className="text-[10px] text-gray-400">Add a completely blank material row</div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addItemRow('COPY')}
+                          className="w-full px-3.5 py-2.5 text-left hover:bg-white/10 transition-colors flex items-start gap-2.5"
+                        >
+                          <Copy className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <div>
+                            <div className="text-xs font-semibold text-emerald-300">Copy Row (Lot No & Expiry)</div>
+                            <div className="text-[10px] text-gray-400">
+                              Copies Lot No & Expiry Date from previous row (editable)
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
-                {grnForm.items.map((row, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-black/40 p-3 rounded-xl border border-white/10 items-center"
-                  >
-                    <div className="md:col-span-3">
-                      <select
-                        required
-                        value={row.rawMaterialId}
-                        onChange={(e) => updateItemRow(idx, 'rawMaterialId', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
-                      >
-                        <option value="">-- Choose Raw Material --</option>
-                        {materials.map((m) => (
-                          <option key={m._id} value={m._id}>
-                            {m.name} ({m.storageType} - {m.baseUnit})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                {grnForm.items.map((row, idx) => {
+                  const selectedMat = materials.find((m) => m._id === row.rawMaterialId);
+                  const matVariants = getMaterialVariants(selectedMat);
+                  const isNonStd = isNonStandardUnit(selectedMat?.baseUnit);
+                  const activeVariantKg = Number(row.unitWeightKg) || matVariants[0] || 0;
+                  return (
+                    <div
+                      key={idx}
+                      className="bg-black/40 p-3 rounded-xl border border-white/10 space-y-2"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                        <div className={isNonStd && matVariants.length > 0 ? "md:col-span-3" : "md:col-span-3"}>
+                          <select
+                            required
+                            value={row.rawMaterialId}
+                            onChange={(e) => updateItemRow(idx, 'rawMaterialId', e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                          >
+                            <option value="">-- Choose Raw Material --</option>
+                            {materials.map((m) => {
+                              const vars = getMaterialVariants(m);
+                              const varSuffix =
+                                isNonStandardUnit(m.baseUnit) && vars.length > 0
+                                  ? ` [${vars.map((v) => `${v}kg`).join(' / ')}]`
+                                  : '';
+                              return (
+                                <option key={m._id} value={m._id}>
+                                  {m.name} ({m.storageType} - {m.baseUnit}{varSuffix})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
 
-                    <div className="md:col-span-2">
-                      <input
-                        type="number"
-                        step="0.001"
-                        required
-                        placeholder="Quantity"
-                        value={row.quantityReceived}
-                        onChange={(e) => updateItemRow(idx, 'quantityReceived', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
-                      />
-                    </div>
+                        <div className="md:col-span-2">
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.001"
+                              required
+                              placeholder={`Quantity${selectedMat ? ` (${selectedMat.baseUnit})` : ''}`}
+                              value={row.quantityReceived}
+                              onChange={(e) => updateItemRow(idx, 'quantityReceived', e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
 
-                    <div className="md:col-span-2">
-                      <input
-                        type="number"
-                        step="0.001"
-                        required
-                        placeholder="Rate (₹/unit)"
-                        value={row.purchaseRate}
-                        onChange={(e) => updateItemRow(idx, 'purchaseRate', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
-                      />
-                    </div>
+                        <div className="md:col-span-2">
+                          <input
+                            type="number"
+                            step="0.001"
+                            required
+                            placeholder={`Rate (₹/${selectedMat?.baseUnit || 'unit'})`}
+                            value={row.purchaseRate}
+                            onChange={(e) => updateItemRow(idx, 'purchaseRate', e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                          />
+                        </div>
 
-                    <div className="md:col-span-2">
-                      <input
-                        type="text"
-                        placeholder="Lot / Batch No"
-                        value={row.lotNumber}
-                        onChange={(e) => updateItemRow(idx, 'lotNumber', e.target.value)}
-                        className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
-                      />
-                    </div>
+                        <div className="md:col-span-2">
+                          <input
+                            type="text"
+                            placeholder="Lot / Batch No"
+                            value={row.lotNumber}
+                            onChange={(e) => updateItemRow(idx, 'lotNumber', e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                          />
+                        </div>
 
-                    <div className="md:col-span-3 flex items-center gap-2">
-                      <input
-                        type="date"
-                        title="Expiry Date"
-                        value={row.expiryDate}
-                        onChange={(e) => updateItemRow(idx, 'expiryDate', e.target.value)}
-                        className="flex-1 min-w-[145px] bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
-                      />
-                      {grnForm.items.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeItemRow(idx)}
-                          title="Remove Row"
-                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 shrink-0"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="md:col-span-3 flex items-center gap-2">
+                          <input
+                            type="date"
+                            title="Expiry Date"
+                            value={row.expiryDate}
+                            onChange={(e) => updateItemRow(idx, 'expiryDate', e.target.value)}
+                            className="flex-1 min-w-[145px] bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                          />
+                          {grnForm.items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeItemRow(idx)}
+                              title="Remove Row"
+                              className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Variant Selector Dropdown Bar for Non-Standard Units */}
+                      {selectedMat && isNonStd && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/5 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-semibold text-primary">
+                              Select {selectedMat.baseUnit} Variant (Kg / {selectedMat.baseUnit}):
+                            </span>
+                            {matVariants.length > 0 ? (
+                              <select
+                                value={row.unitWeightKg || matVariants[0]}
+                                onChange={(e) => updateItemRow(idx, 'unitWeightKg', e.target.value)}
+                                className="bg-black border border-primary/40 rounded-lg px-2.5 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-primary cursor-pointer"
+                              >
+                                {matVariants.map((v, vIdx) => (
+                                  <option key={vIdx} value={v}>
+                                    Variant {vIdx + 1}: 1 {selectedMat.baseUnit} = {format3Decimals(v)} kg
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-gray-400 font-mono">1 {selectedMat.baseUnit} =</span>
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  min="0"
+                                  placeholder="Weight in kg (e.g. 0.75)"
+                                  value={row.unitWeightKg}
+                                  onChange={(e) => updateItemRow(idx, 'unitWeightKg', e.target.value)}
+                                  className="w-32 bg-black border border-primary/40 rounded-lg px-2.5 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-[11px] text-gray-400 font-mono">kg</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {activeVariantKg > 0 && Number(row.quantityReceived) > 0 && (
+                            <div className="text-[11px] font-mono text-emerald-400">
+                              Total Weight = {format3Decimals(Number(row.quantityReceived) * activeVariantKg)} kg ({format3Decimals(row.quantityReceived)} {selectedMat.baseUnit} × {format3Decimals(activeVariantKg)} kg)
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -512,7 +658,12 @@ const GoodsReceipt = () => {
                         <td className="py-3 px-4 font-mono font-bold text-primary">{entry.grnNumber || '—'}</td>
                         <td className="py-3 px-4 font-medium text-white">{entry.materialName}</td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
-                          +{format3Decimals(entry.quantity)} {entry.unit}
+                          <div>+{format3Decimals(entry.quantity)} {entry.unit}</div>
+                          {isNonStandardUnit(entry.unit) && (entry.unitWeightKg || entry.rawMaterial?.unitWeightKg) > 0 && (
+                            <div className="text-[10px] font-normal text-cyan-300">
+                              1 {entry.unit} = {format3Decimals(entry.unitWeightKg || entry.rawMaterial?.unitWeightKg)} kg ({format3Decimals(entry.quantity * (entry.unitWeightKg || entry.rawMaterial?.unitWeightKg))} kg)
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-white">₹{format3Decimals(entry.rate)}</td>
                         <td className="py-3 px-4 text-right font-mono text-gray-300">
@@ -580,7 +731,16 @@ const GoodsReceipt = () => {
                 <label className="block text-xs font-medium text-gray-300 mb-1">Raw Material *</label>
                 <select
                   value={editForm.rawMaterialId}
-                  onChange={(e) => setEditForm({ ...editForm, rawMaterialId: e.target.value })}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    const mat = materials.find((m) => m._id === newId);
+                    const vars = getMaterialVariants(mat);
+                    setEditForm({
+                      ...editForm,
+                      rawMaterialId: newId,
+                      unitWeightKg: isNonStandardUnit(mat?.baseUnit) && vars.length > 0 ? String(vars[0]) : ''
+                    });
+                  }}
                   className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
                 >
                   {materials.map((m) => (
@@ -590,6 +750,30 @@ const GoodsReceipt = () => {
                   ))}
                 </select>
               </div>
+
+              {(() => {
+                const mat = materials.find((m) => m._id === editForm.rawMaterialId);
+                const vars = getMaterialVariants(mat);
+                if (!mat || !isNonStandardUnit(mat.baseUnit) || vars.length === 0) return null;
+                return (
+                  <div>
+                    <label className="block text-xs font-medium text-primary mb-1">
+                      Select {mat.baseUnit} Variant (Weight in Kg)
+                    </label>
+                    <select
+                      value={editForm.unitWeightKg || vars[0]}
+                      onChange={(e) => setEditForm({ ...editForm, unitWeightKg: e.target.value })}
+                      className="w-full bg-black border border-primary/40 rounded-xl px-3.5 py-2 text-xs text-emerald-300 font-mono focus:outline-none focus:border-primary"
+                    >
+                      {vars.map((v, idx) => (
+                        <option key={idx} value={v}>
+                          1 {mat.baseUnit} = {format3Decimals(v)} kg
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

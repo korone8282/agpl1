@@ -1,116 +1,190 @@
 import { Button } from "../../components/Buttons";
 import { Input } from "../../components/Input";
 import { Search, Filter } from "lucide-react";
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { useSelector } from 'react-redux';
-import { PRODUCT_URL, CATEGORIES_URL,  DATA_URL } from '../../redux/Utils/constants';
-import Loader from '../../components/Loader'
-import {toast} from 'react-toastify';
+import { PRODUCT_URL, CATEGORIES_URL, DATA_URL } from '../../redux/Utils/constants';
+import Loader from '../../components/Loader';
+import { toast } from 'react-toastify';
 import PageTransition from '../PageTransition';
 
-const Index = () => {
+const norm = (str) => String(str || '').trim().toLowerCase();
 
+const Index = () => {
   const [arr, setarr] = useState([]);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(1);
   const [loading2, setLoading2] = useState(0);
   const [error, setError] = useState(0);
-  const [products, setproducts] = useState([]);
-  const [ogData, setogData] = useState([]);
-  const [dummy, setdummy] = useState();
-  const [openBox, setopenBox] = useState(0);
-  const [categories, setcategories] = useState([]); 
+  const [allProducts, setAllProducts] = useState([]);
+  const [selectedBuyer, setSelectedBuyer] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openBox, setopenBox] = useState(false);
+  const [categories, setcategories] = useState([]);
   const [info, setInfo] = useState({
-      start:"",
-      end:"",
-      product:""
+    start: "",
+    end: "",
+    product: ""
   });
 
-  const {userinfo} = useSelector(state=>state.auth);
+  const { userinfo } = useSelector((state) => state.auth);
 
   useEffect(() => {
-
-      async function getProducts(){
-          try {
-    
-        const res = await apiConnector(`${PRODUCT_URL}/products`,"GET");
-        setproducts(res.data.data);
-        setogData(res.data.data);
-        setdummy(res.data.data);
-    
-        setLoading(0);
-          } catch (error) {
-            console.log(error);
-          }
-          }
-
-  async function getCategories(){
-          try {
-        
+    async function loadInitialData() {
+      try {
         setError(0);
-    
-        const res = await apiConnector(`${CATEGORIES_URL}/categories`,"GET");
-        setcategories(res.data.data);
-    
+        const [prodRes, catRes] = await Promise.all([
+          apiConnector(`${PRODUCT_URL}/products`, "GET"),
+          apiConnector(`${CATEGORIES_URL}/categories`, "GET")
+        ]);
+        setAllProducts(prodRes.data.data || []);
+        setcategories(catRes.data.data || []);
         setLoading(0);
-          } catch (error) {
-            setError(1)
-            console.log(error);
-          }
-          }
-    
-    getCategories();
-    getProducts();
+      } catch (err) {
+        console.log(err);
+        setError(1);
+        setLoading(0);
+      }
+    }
 
-    }, [userinfo.token]);
+    loadInitialData();
+  }, [userinfo.token]);
 
-    function handleSearch(val) {
+  const filteredProducts = useMemo(() => {
+    return (allProducts || [])
+      .filter((item) => {
+        if (selectedBuyer && norm(item.buyer) !== norm(selectedBuyer)) {
+          return false;
+        }
+        if (searchQuery.trim()) {
+          const q = norm(searchQuery);
+          return norm(item.name).includes(q) || norm(item.buyer).includes(q);
+        }
+        return true;
+      })
+      .slice()
+      .sort((a, b) => {
+        const bC = (a.buyer || "").trim().localeCompare((b.buyer || "").trim());
+        if (bC !== 0) return bC;
+        return (a.name || "").trim().localeCompare((b.name || "").trim());
+      });
+  }, [allProducts, selectedBuyer, searchQuery]);
 
-      if (val === ""){ 
-        setproducts(dummy)
-        return
+  const inputHandler = (e) => {
+    setInfo((prevData) => ({
+      ...prevData,
+      [e.target.name]: e.target.value
+    }));
+  };
+
+  async function getData() {
+    if (!info.start || !info.end) {
+      toast.warn("Please select both From and To dates");
+      return;
+    }
+    if (!info.product || (!info.product.name && !info.product.buyer)) {
+      toast.warn("Please select a product or buyer from the left directory");
+      return;
+    }
+
+    setLoading2(1);
+
+    const startParts = info.start.split("-").map(Number);
+    const endParts = info.end.split("-").map(Number);
+    const startUtc = Date.UTC(startParts[0], startParts[1] - 1, startParts[2]);
+    const endUtc = Date.UTC(endParts[0], endParts[1] - 1, endParts[2]);
+
+    const dateKeys = [];
+    for (let t = startUtc; t <= endUtc; t += 86400000) {
+      dateKeys.push(new Date(t).toISOString().substring(0, 10));
+    }
+    setarr(dateKeys);
+
+    try {
+      const res = await apiConnector(
+        `${DATA_URL}/Product`,
+        "PUT",
+        info,
+        { Authorization: `Bearer ${userinfo.token}` }
+      );
+      setData(res.data.data || []);
+      setLoading2(0);
+    } catch (err) {
+      setData([]);
+      setLoading2(0);
+      toast(err?.response?.data?.message || "No data found for selection");
+    }
+  }
+
+  const { dailyRows, totals } = useMemo(() => {
+    const targetName = norm(info.product?.name);
+    const targetBuyer = norm(info.product?.buyer);
+    const isAllProductsForBuyer = targetName === "all";
+
+    const byDate = {};
+    for (const dateKey of arr) {
+      byDate[dateKey] = {
+        dateKey,
+        kitchenKg: 0,
+        fillingPouches: 0,
+        dispatchPouches: 0,
+        wastage: 0,
+        boxes: 0
+      };
+    }
+
+    const grandTotals = {
+      kitchenKg: 0,
+      fillingPouches: 0,
+      dispatchPouches: 0,
+      wastage: 0,
+      boxes: 0
+    };
+
+    for (const doc of data || []) {
+      const dateKey = String(doc.createdAt || "").substring(0, 10);
+      const bucket = byDate[dateKey];
+
+      for (const entry of doc.dataList || []) {
+        const entryBuyer = norm(entry.buyerName);
+        const entryProduct = norm(entry.productName);
+
+        const buyerMatches = !targetBuyer || entryBuyer === targetBuyer;
+        const productMatches = isAllProductsForBuyer || !targetName || entryProduct === targetName;
+
+        if (!buyerMatches || !productMatches) continue;
+
+        const kKg = (Number(entry.yield) || 0) * (Number(entry.batchQuantity) || 0);
+        const fPouch = Number(entry.pouchQuantity) || 0;
+        const dPouch = Number(entry.pouchPacked) || 0;
+        const w =
+          (Number(entry.empty) || 0) +
+          (Number(entry.leaked) || 0) +
+          (Number(entry.foreignMatter) || 0);
+        const bx = Number(entry.box) || 0;
+
+        if (bucket) {
+          bucket.kitchenKg += kKg;
+          bucket.fillingPouches += fPouch;
+          bucket.dispatchPouches += dPouch;
+          bucket.wastage += w;
+          bucket.boxes += bx;
         }
 
-       let filterBySearch = ogData.filter((item) => {
-           if (item.name.toLowerCase().startsWith(val.toLowerCase())){ 
-             return item
-            } else {
-             return null 
-            }
-       })
-       setogData(dummy)
-       setproducts(filterBySearch); 
-     }
+        grandTotals.kitchenKg += kKg;
+        grandTotals.fillingPouches += fPouch;
+        grandTotals.dispatchPouches += dPouch;
+        grandTotals.wastage += w;
+        grandTotals.boxes += bx;
+      }
+    }
 
-const inputHandler = async(e) =>{
-   setInfo((prevData) => ({
-     ...prevData,
-     [e.target.name]: e.target.value
-   }));
- }
-
-async function getData(){
-
- setLoading2(1)
-
- let array = []
- for (let q = new Date(info.start); q <= new Date(info.end); q = new Date(q.getTime() + 86400000)) {
-   array.push(q.toISOString());
- }
- setarr(array)
-
-   try {
-
-     const res = await apiConnector(`${DATA_URL}/Product`,"PUT",info,{Authorization: `Bearer ${userinfo.token}`});
-     setData(res.data.data);
-     setLoading2(0);
-
-   } catch (error) {
-     setLoading2(0);
-     toast(error.response.data.message)
-   }
- }
+    return {
+      dailyRows: arr.map((d) => byDate[d]),
+      totals: grandTotals
+    };
+  }, [arr, data, info.product]);
 
   return (
     <PageTransition>
@@ -137,7 +211,7 @@ async function getData(){
                   Product History & Shift Breakdown
                 </h1>
                 <p className="text-zinc-400 text-xs sm:text-sm mt-1">
-                  Select a product and date range to inspect cross-departmental throughput (Kitchen, Filling, Dispatch).
+                  Select a product (or buyer) and date range to inspect cross-departmental throughput (Kitchen, Filling, Dispatch).
                 </p>
               </div>
 
@@ -165,7 +239,7 @@ async function getData(){
                     <h2 className="text-base font-bold text-white flex items-center gap-2">
                       <span>Product Directory</span>
                       <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-400">
-                        {products?.length || 0}
+                        {filteredProducts?.length || 0}
                       </span>
                     </h2>
                     <Button
@@ -174,7 +248,7 @@ async function getData(){
                       onClick={() => setopenBox(!openBox)}
                     >
                       <Filter className="w-3.5 h-3.5 mr-1.5" />
-                      Buyer Filter
+                      {selectedBuyer ? selectedBuyer : "Buyer Filter"}
                     </Button>
                   </div>
 
@@ -184,7 +258,7 @@ async function getData(){
                       <div
                         className="p-2 hover:bg-white/10 rounded-lg cursor-pointer text-zinc-300 hover:text-white"
                         onClick={() => {
-                          setproducts(dummy);
+                          setSelectedBuyer("");
                           setopenBox(false);
                         }}
                       >
@@ -194,26 +268,30 @@ async function getData(){
                         .slice()
                         .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                         .map((val, ind) => (
-                        <div
-                          className="p-2 hover:bg-primary hover:text-black rounded-lg cursor-pointer text-zinc-300 transition-colors"
-                          key={ind}
-                          onClick={() => {
-                            let p = (dummy || products).filter((item) => item.buyer === val.name);
-                            setproducts(p);
-                            setopenBox(false);
-                          }}
-                        >
-                          {val.name}
-                        </div>
-                      ))}
+                          <div
+                            className="p-2 hover:bg-primary hover:text-black rounded-lg cursor-pointer text-zinc-300 transition-colors"
+                            key={ind}
+                            onClick={() => {
+                              setSelectedBuyer(val.name);
+                              setInfo((prevData) => ({
+                                ...prevData,
+                                product: { name: "ALL", buyer: val.name }
+                              }));
+                              setopenBox(false);
+                            }}
+                          >
+                            {val.name}
+                          </div>
+                        ))}
                     </div>
                   )}
 
                   <div className="relative mb-4">
                     <Input
                       type="text"
-                      placeholder="Search products by title..."
-                      onChange={(e) => handleSearch(e.target.value)}
+                      value={searchQuery}
+                      placeholder="Search products or buyers..."
+                      onChange={(e) => setSearchQuery(e.target.value)}
                       className="bg-black border border-white/10 rounded-xl pl-9 text-xs py-2 w-full text-white placeholder-zinc-500 focus:border-primary"
                     />
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-3.5 h-3.5" />
@@ -229,22 +307,39 @@ async function getData(){
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {products
-                          .slice()
-                          .sort((a, b) => {
-                            const bC = (a.buyer || "").localeCompare(b.buyer || "");
-                            if (bC !== 0) return bC;
-                            return (a.name || "").localeCompare(b.name || "");
-                          })
-                          .map((val, i) => {
-                          const isSelected = info.product?.name === val.name && info.product?.buyer === val.buyer;
+                        {selectedBuyer && (
+                          <tr
+                            onClick={() =>
+                              setInfo((prevData) => ({
+                                ...prevData,
+                                product: { name: "ALL", buyer: selectedBuyer }
+                              }))
+                            }
+                            className={`cursor-pointer transition-colors text-xs ${
+                              norm(info.product?.name) === "all" &&
+                              norm(info.product?.buyer) === norm(selectedBuyer)
+                                ? "bg-primary/15 text-primary font-bold border-l-2 border-primary"
+                                : "bg-white/[0.02] hover:bg-white/[0.05] text-amber-300"
+                            }`}
+                          >
+                            <td className="py-2.5 px-3 font-mono text-amber-400">★</td>
+                            <td className="py-2.5 px-3 font-semibold">{selectedBuyer}</td>
+                            <td className="py-2.5 px-3 font-bold">
+                              All {selectedBuyer} Products (Combined)
+                            </td>
+                          </tr>
+                        )}
+                        {filteredProducts.map((val, i) => {
+                          const isSelected =
+                            norm(info.product?.name) === norm(val.name) &&
+                            norm(info.product?.buyer) === norm(val.buyer);
                           return (
                             <tr
-                              key={i}
+                              key={val._id || i}
                               onClick={() => {
                                 setInfo((prevData) => ({
                                   ...prevData,
-                                  product: val,
+                                  product: val
                                 }));
                               }}
                               className={`cursor-pointer transition-colors text-xs ${
@@ -272,7 +367,13 @@ async function getData(){
                       <div className="text-xs font-mono text-primary mt-1">
                         {info.product?.name ? (
                           <span>
-                            Selected: <strong>{info.product.name}</strong> ({info.product.buyer})
+                            Selected:{" "}
+                            <strong>
+                              {norm(info.product.name) === "all"
+                                ? `All ${info.product.buyer} Products`
+                                : info.product.name}
+                            </strong>{" "}
+                            ({info.product.buyer})
                           </span>
                         ) : (
                           <span className="text-zinc-500">← Click a product from the directory on the left</span>
@@ -286,6 +387,7 @@ async function getData(){
                         <input
                           type="date"
                           name="start"
+                          value={info.start}
                           onChange={(e) => inputHandler(e)}
                           className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none"
                         />
@@ -295,6 +397,7 @@ async function getData(){
                         <input
                           type="date"
                           name="end"
+                          value={info.end}
                           onChange={(e) => inputHandler(e)}
                           className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none"
                         />
@@ -315,118 +418,14 @@ async function getData(){
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5 font-mono text-xs">
-                        {arr?.map((val, i) => (
-                          <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                            <td className="py-2.5 px-3.5 text-zinc-400">{val?.substring(5, 10)}</td>
-                            <td className="py-2.5 px-3.5 text-zinc-200">
-                              {data
-                                .filter((item) => item.createdAt === val)
-                                .reduce(
-                                  (acc, obj) =>
-                                    acc +
-                                    obj.dataList
-                                      .filter(
-                                        (object) =>
-                                          object.productName === info.product.name &&
-                                          object.buyerName === info.product.buyer
-                                      )
-                                      .reduce((accumulator, obj) => accumulator + obj.yield * obj.batchQuantity, 0),
-                                  0
-                                )
-                                .toFixed(2)}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-white font-semibold">
-                              {data
-                                .filter((item) => item.createdAt === val)
-                                .reduce(
-                                  (acc, obj) =>
-                                    acc +
-                                    obj.dataList
-                                      .filter(
-                                        (object) =>
-                                          object.productName === info.product.name &&
-                                          object.buyerName === info.product.buyer
-                                      )
-                                      .reduce((accumulator, obj) => accumulator + obj.pouchQuantity, 0),
-                                  0
-                                )}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-zinc-200">
-                              {data
-                                .filter((item) => item.createdAt === val)
-                                .reduce(
-                                  (acc, obj) =>
-                                    acc +
-                                    obj.dataList
-                                      .filter(
-                                        (object) =>
-                                          object.productName === info.product.name &&
-                                          object.buyerName === info.product.buyer
-                                      )
-                                      .reduce((accumulator, obj) => accumulator + obj.pouchPacked, 0),
-                                  0
-                                )}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-amber-400">
-                              {data
-                                .filter((item) => item.createdAt === val)
-                                .reduce(
-                                  (acc, obj) =>
-                                    acc +
-                                    obj.dataList
-                                      .filter(
-                                        (object) =>
-                                          object.productName === info.product.name &&
-                                          object.buyerName === info.product.buyer
-                                      )
-                                      .reduce((accumulator, obj) => accumulator + obj.empty, 0),
-                                  0
-                                ) +
-                                data
-                                  .filter((item) => item.createdAt === val)
-                                  .reduce(
-                                    (acc, obj) =>
-                                      acc +
-                                      obj.dataList
-                                        .filter(
-                                          (object) =>
-                                            object.productName === info.product.name &&
-                                            object.buyerName === info.product.buyer
-                                        )
-                                        .reduce((accumulator, obj) => accumulator + obj.leaked, 0),
-                                    0
-                                  ) +
-                                data
-                                  .filter((item) => item.createdAt === val)
-                                  .reduce(
-                                    (acc, obj) =>
-                                      acc +
-                                      obj.dataList
-                                        .filter(
-                                          (object) =>
-                                            object.productName === info.product.name &&
-                                            object.buyerName === info.product.buyer
-                                        )
-                                        .reduce((accumulator, obj) => accumulator + obj.foreignMatter, 0),
-                                    0
-                                  )}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-zinc-400">
-                              {data
-                                .filter((item) => item.createdAt === val)
-                                .reduce(
-                                  (acc, obj) =>
-                                    acc +
-                                    obj.dataList
-                                      .filter(
-                                        (object) =>
-                                          object.productName === info.product.name &&
-                                          object.buyerName === info.product.buyer
-                                      )
-                                      .reduce((accumulator, obj) => accumulator + obj.box, 0),
-                                  0
-                                )}
-                            </td>
+                        {dailyRows.map((row, i) => (
+                          <tr key={row.dateKey || i} className="hover:bg-white/[0.02] transition-colors">
+                            <td className="py-2.5 px-3.5 text-zinc-400">{row.dateKey?.substring(5, 10)}</td>
+                            <td className="py-2.5 px-3.5 text-zinc-200">{row.kitchenKg.toFixed(2)}</td>
+                            <td className="py-2.5 px-3.5 text-white font-semibold">{row.fillingPouches}</td>
+                            <td className="py-2.5 px-3.5 text-zinc-200">{row.dispatchPouches}</td>
+                            <td className="py-2.5 px-3.5 text-amber-400">{row.wastage}</td>
+                            <td className="py-2.5 px-3.5 text-zinc-400">{row.boxes}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -434,102 +433,11 @@ async function getData(){
                       <tfoot className="bg-[#141414] font-mono text-xs font-bold border-t border-white/10 sticky bottom-0">
                         <tr>
                           <td className="py-3 px-3.5 text-primary uppercase">Total</td>
-                          <td className="py-3 px-3.5 text-white">
-                            {data
-                              .reduce(
-                                (acc, obj) =>
-                                  acc +
-                                  obj.dataList
-                                    .filter(
-                                      (object) =>
-                                        object.productName === info.product.name &&
-                                        object.buyerName === info.product.buyer
-                                    )
-                                    .reduce((accumulator, obj) => accumulator + obj.yield * obj.batchQuantity, 0),
-                                0
-                              )
-                              .toFixed(2)}
-                          </td>
-                          <td className="py-3 px-3.5 text-primary">
-                            {data.reduce(
-                              (acc, obj) =>
-                                acc +
-                                obj.dataList
-                                  .filter(
-                                    (object) =>
-                                      object.productName === info.product.name &&
-                                      object.buyerName === info.product.buyer
-                                  )
-                                  .reduce((accumulator, obj) => accumulator + obj.pouchQuantity, 0),
-                              0
-                            )}
-                          </td>
-                          <td className="py-3 px-3.5 text-white">
-                            {data.reduce(
-                              (acc, obj) =>
-                                acc +
-                                obj.dataList
-                                  .filter(
-                                    (object) =>
-                                      object.productName === info.product.name &&
-                                      object.buyerName === info.product.buyer
-                                  )
-                                  .reduce((accumulator, obj) => accumulator + obj.pouchPacked, 0),
-                              0
-                            )}
-                          </td>
-                          <td className="py-3 px-3.5 text-amber-400">
-                            {data.reduce(
-                              (acc, obj) =>
-                                acc +
-                                obj.dataList
-                                  .filter(
-                                    (object) =>
-                                      object.productName === info.product.name &&
-                                      object.buyerName === info.product.buyer
-                                  )
-                                  .reduce((accumulator, obj) => accumulator + obj.empty, 0),
-                              0
-                            ) +
-                              data.reduce(
-                                (acc, obj) =>
-                                  acc +
-                                  obj.dataList
-                                    .filter(
-                                      (object) =>
-                                        object.productName === info.product.name &&
-                                        object.buyerName === info.product.buyer
-                                    )
-                                    .reduce((accumulator, obj) => accumulator + obj.leaked, 0),
-                                0
-                              ) +
-                              data.reduce(
-                                (acc, obj) =>
-                                  acc +
-                                  obj.dataList
-                                    .filter(
-                                      (object) =>
-                                        object.productName === info.product.name &&
-                                        object.buyerName === info.product.buyer
-                                    )
-                                    .reduce((accumulator, obj) => accumulator + obj.foreignMatter, 0),
-                                0
-                              )}
-                          </td>
-                          <td className="py-3 px-3.5 text-white">
-                            {data.reduce(
-                              (acc, obj) =>
-                                acc +
-                                obj.dataList
-                                  .filter(
-                                    (object) =>
-                                      object.productName === info.product.name &&
-                                      object.buyerName === info.product.buyer
-                                  )
-                                  .reduce((accumulator, obj) => accumulator + obj.box, 0),
-                              0
-                            )}
-                          </td>
+                          <td className="py-3 px-3.5 text-white">{totals.kitchenKg.toFixed(2)}</td>
+                          <td className="py-3 px-3.5 text-primary">{totals.fillingPouches}</td>
+                          <td className="py-3 px-3.5 text-white">{totals.dispatchPouches}</td>
+                          <td className="py-3 px-3.5 text-amber-400">{totals.wastage}</td>
+                          <td className="py-3 px-3.5 text-white">{totals.boxes}</td>
                         </tr>
                       </tfoot>
                     </table>

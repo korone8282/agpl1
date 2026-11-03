@@ -88,6 +88,57 @@ const normalizeUnit = (unit) => {
     return String(unit).trim();
 };
 
+const isStandardBaseUnit = (unit) => {
+    const u = normalizeUnit(unit);
+    return ['kg', 'g', 'L', 'ml'].includes(u);
+};
+
+// Normalize unitWeightVariants array and primary unitWeightKg
+const normalizeWeightVariants = (variantsInput, singleWeightInput, baseUnit) => {
+    if (isStandardBaseUnit(baseUnit)) {
+        return { unitWeightVariants: [], unitWeightKg: null };
+    }
+    const rawList = [];
+    if (Array.isArray(variantsInput)) {
+        rawList.push(...variantsInput);
+    } else if (typeof variantsInput === 'string' && variantsInput.trim()) {
+        rawList.push(...variantsInput.split(/[,;/|]+/));
+    }
+    if (singleWeightInput !== undefined && singleWeightInput !== null && singleWeightInput !== '') {
+        rawList.push(singleWeightInput);
+    }
+    const seen = new Set();
+    const cleanVariants = [];
+    for (const v of rawList) {
+        const num = parseFloat(v);
+        if (!isNaN(num) && num > 0) {
+            const rounded = parseFloat(num.toFixed(4));
+            if (!seen.has(rounded)) {
+                seen.add(rounded);
+                cleanVariants.push(rounded);
+            }
+        }
+    }
+    return {
+        unitWeightVariants: cleanVariants,
+        unitWeightKg: cleanVariants.length > 0 ? cleanVariants[0] : null
+    };
+};
+
+const ensureDocVariants = (doc) => {
+    const variants = Array.isArray(doc.unitWeightVariants)
+        ? doc.unitWeightVariants.map(Number).filter(n => !isNaN(n) && n > 0)
+        : [];
+    if (variants.length === 0 && doc.unitWeightKg && Number(doc.unitWeightKg) > 0) {
+        variants.push(Number(doc.unitWeightKg));
+    }
+    doc.unitWeightVariants = variants;
+    if (!doc.unitWeightKg && variants.length > 0) {
+        doc.unitWeightKg = variants[0];
+    }
+    return doc;
+};
+
 // ==========================================
 // 1. RAW MATERIAL CONTROLLER
 // ==========================================
@@ -113,7 +164,7 @@ exports.getRawMaterials = async (req, res) => {
 
         const now = new Date();
         const enriched = materials.map(m => {
-            const doc = m.toObject();
+            const doc = ensureDocVariants(m.toObject());
             if (doc.earliestExpiryDate) {
                 const exp = new Date(doc.earliestExpiryDate);
                 const diffTime = exp.getTime() - now.getTime();
@@ -303,7 +354,7 @@ exports.getRawMaterialById = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                ...material.toObject(),
+                ...ensureDocVariants(material.toObject()),
                 recentTransactions,
                 activeLots,
                 purchaseHistory,
@@ -323,6 +374,7 @@ exports.createRawMaterial = async (req, res) => {
             storageType,
             baseUnit,
             unitWeightKg,
+            unitWeightVariants,
             currentStock,
             minSafetyStock,
             leadTimeDays,
@@ -337,17 +389,15 @@ exports.createRawMaterial = async (req, res) => {
         }
 
         const normalizedBaseUnit = normalizeUnit(baseUnit);
-        const parsedUnitWeightKg =
-            unitWeightKg !== undefined && unitWeightKg !== null && unitWeightKg !== '' && Number(unitWeightKg) > 0
-                ? Number(unitWeightKg)
-                : null;
+        const normalizedWeights = normalizeWeightVariants(unitWeightVariants, unitWeightKg, normalizedBaseUnit);
 
         const material = await RawMaterial.create({
             name: name.trim(),
             code: code ? code.trim().toUpperCase() : undefined,
             storageType: storageType || 'Ambient',
             baseUnit: normalizedBaseUnit,
-            unitWeightKg: parsedUnitWeightKg,
+            unitWeightKg: normalizedWeights.unitWeightKg,
+            unitWeightVariants: normalizedWeights.unitWeightVariants,
             currentStock: Number(currentStock) || 0,
             minSafetyStock: Number(minSafetyStock) || 0,
             leadTimeDays: Number(leadTimeDays) || 1,
@@ -366,6 +416,7 @@ exports.createRawMaterial = async (req, res) => {
                 quantity: Number(currentStock),
                 balanceAfter: Number(currentStock),
                 unit: material.baseUnit,
+                unitWeightKg: material.unitWeightKg,
                 rate: Number(lastPurchaseRate) || 0,
                 totalAmount: (Number(currentStock) * (Number(lastPurchaseRate) || 0)),
                 storageType: material.storageType,
@@ -373,7 +424,7 @@ exports.createRawMaterial = async (req, res) => {
             });
         }
 
-        res.status(201).json({ success: true, data: material });
+        res.status(201).json({ success: true, data: ensureDocVariants(material.toObject()) });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -381,26 +432,35 @@ exports.createRawMaterial = async (req, res) => {
 
 exports.updateRawMaterial = async (req, res) => {
     try {
-        if (req.body.baseUnit) {
-            req.body.baseUnit = normalizeUnit(req.body.baseUnit);
-            if (['kg', 'g', 'L', 'ml'].includes(req.body.baseUnit) && req.body.unitWeightKg === undefined) {
-                req.body.unitWeightKg = null;
-            }
+        const existingMat = await RawMaterial.findById(req.params.id);
+        if (!existingMat) {
+            return res.status(404).json({ success: false, message: 'Raw material not found' });
         }
-        if (req.body.unitWeightKg !== undefined) {
+
+        const targetBaseUnit = req.body.baseUnit ? normalizeUnit(req.body.baseUnit) : existingMat.baseUnit;
+        req.body.baseUnit = targetBaseUnit;
+
+        if (isStandardBaseUnit(targetBaseUnit)) {
+            req.body.unitWeightKg = null;
+            req.body.unitWeightVariants = [];
+        } else if (req.body.unitWeightVariants !== undefined || req.body.unitWeightKg !== undefined) {
+            const normalizedWeights = normalizeWeightVariants(
+                req.body.unitWeightVariants !== undefined ? req.body.unitWeightVariants : existingMat.unitWeightVariants,
+                req.body.unitWeightKg,
+                targetBaseUnit
+            );
+            req.body.unitWeightVariants = normalizedWeights.unitWeightVariants;
             req.body.unitWeightKg =
-                req.body.unitWeightKg !== null && req.body.unitWeightKg !== '' && Number(req.body.unitWeightKg) > 0
+                req.body.unitWeightKg !== undefined && Number(req.body.unitWeightKg) > 0
                     ? Number(req.body.unitWeightKg)
-                    : null;
+                    : normalizedWeights.unitWeightKg;
         }
+
         const material = await RawMaterial.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
             runValidators: true
         });
-        if (!material) {
-            return res.status(404).json({ success: false, message: 'Raw material not found' });
-        }
-        res.status(200).json({ success: true, data: material });
+        res.status(200).json({ success: true, data: ensureDocVariants(material.toObject()) });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -412,6 +472,12 @@ exports.updateRawMaterial = async (req, res) => {
 
 exports.getRecipes = async (req, res) => {
     try {
+        // Ensure all recipes in DB have ingredient units set to 'kg'
+        await Recipe.updateMany(
+            { 'ingredients.unit': { $ne: 'kg' } },
+            { $set: { 'ingredients.$[].unit': 'kg' } }
+        );
+
         const { buyerName, search } = req.query;
         let query = { isActive: true };
         if (buyerName && buyerName !== 'ALL') {
@@ -437,6 +503,14 @@ exports.getRecipeById = async (req, res) => {
         if (!recipe) {
             return res.status(404).json({ success: false, message: 'Recipe not found' });
         }
+        let modified = false;
+        (recipe.ingredients || []).forEach((ing) => {
+            if (ing.unit !== 'kg') {
+                ing.unit = 'kg';
+                modified = true;
+            }
+        });
+        if (modified) await recipe.save();
         res.status(200).json({ success: true, data: recipe });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -471,7 +545,7 @@ exports.createRecipe = async (req, res) => {
             pouchesPerBatch = parseFloat((cookedWeight / normalizedPackSizes[0]).toFixed(3));
         }
 
-        // Link rawMaterial IDs where available
+        // Link rawMaterial IDs where available; recipe ingredient unit is always 'kg'
         const enrichedIngredients = await Promise.all(
             (ingredients || []).map(async (ing) => {
                 const escapedName = escapeRegex((ing.materialName || '').trim());
@@ -483,7 +557,7 @@ exports.createRecipe = async (req, res) => {
                     rawMaterial: rm ? rm._id : undefined,
                     lossFactor: Number(ing.lossFactor) || 1.0,
                     edibleQuantity: Number(ing.edibleQuantity) || 0,
-                    unit: normalizeUnit(ing.unit)
+                    unit: 'kg'
                 };
             })
         );
@@ -540,7 +614,7 @@ exports.updateRecipe = async (req, res) => {
                         rawMaterial: rm ? rm._id : ing.rawMaterial,
                         lossFactor: Number(ing.lossFactor) || 1.0,
                         edibleQuantity: Number(ing.edibleQuantity) || 0,
-                        unit: normalizeUnit(ing.unit)
+                        unit: 'kg'
                     };
                 })
             );
@@ -692,7 +766,7 @@ exports.importRecipesExcel = async (req, res) => {
                 let edibleQty = qtyIdx !== -1 ? parseFloat(row[qtyIdx]) : 0;
                 if (isNaN(edibleQty)) edibleQty = 0;
 
-                const unit = unitIdx !== -1 && row[unitIdx] ? normalizeUnit(row[unitIdx]) : 'kg';
+                const unit = 'kg';
                 let lossFactor = factorIdx !== -1 ? parseFloat(row[factorIdx]) : 1.0;
                 if (isNaN(lossFactor) || lossFactor <= 0) lossFactor = 1.0;
 
@@ -794,7 +868,7 @@ exports.importRecipesExcel = async (req, res) => {
                     materialName: ing.materialName,
                     materialCode: ing.materialCode || rawMat.code || '',
                     edibleQuantity: ing.edibleQuantity,
-                    unit: ing.unit,
+                    unit: 'kg',
                     lossFactor: ing.lossFactor,
                     storageType: ing.storageType,
                     notes: ing.notes
@@ -1016,7 +1090,7 @@ exports.getStockLedger = async (req, res) => {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit))
-            .populate('rawMaterial', 'name code baseUnit storageType');
+            .populate('rawMaterial', 'name code baseUnit storageType unitWeightKg unitWeightVariants');
 
         const total = await StockLedger.countDocuments(query);
 
@@ -1054,6 +1128,11 @@ exports.recordAdjustment = async (req, res) => {
         rawMat.currentStock = newBalance;
         await rawMat.save();
 
+        const selectedWeightKg =
+            req.body.unitWeightKg !== undefined && Number(req.body.unitWeightKg) > 0
+                ? Number(req.body.unitWeightKg)
+                : rawMat.unitWeightKg || null;
+
         const ledgerEntry = await StockLedger.create({
             rawMaterial: rawMat._id,
             materialName: rawMat.name,
@@ -1061,6 +1140,7 @@ exports.recordAdjustment = async (req, res) => {
             quantity: delta,
             balanceAfter: newBalance,
             unit: rawMat.baseUnit,
+            unitWeightKg: selectedWeightKg,
             rate: rawMat.lastPurchaseRate,
             totalAmount: Math.abs(delta) * rawMat.lastPurchaseRate,
             storageType: rawMat.storageType,
@@ -1071,7 +1151,7 @@ exports.recordAdjustment = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Stock adjustment recorded successfully',
-            data: { material: rawMat, ledger: ledgerEntry }
+            data: { material: ensureDocVariants(rawMat.toObject()), ledger: ledgerEntry }
         });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -1106,6 +1186,27 @@ exports.recordGRN = async (req, res) => {
             rawMat.currentStock = newStock;
             rawMat.lastPurchaseRate = rate;
 
+            let itemVariantWeightKg =
+                item.unitWeightKg !== undefined && item.unitWeightKg !== null && item.unitWeightKg !== '' && Number(item.unitWeightKg) > 0
+                    ? parseFloat(Number(item.unitWeightKg).toFixed(4))
+                    : rawMat.unitWeightKg || null;
+
+            if (itemVariantWeightKg && !isStandardBaseUnit(rawMat.baseUnit)) {
+                const existingVariants = Array.isArray(rawMat.unitWeightVariants)
+                    ? rawMat.unitWeightVariants.map(Number).filter(n => !isNaN(n) && n > 0)
+                    : [];
+                if (rawMat.unitWeightKg && !existingVariants.includes(Number(rawMat.unitWeightKg))) {
+                    existingVariants.push(Number(rawMat.unitWeightKg));
+                }
+                if (!existingVariants.includes(itemVariantWeightKg)) {
+                    existingVariants.push(itemVariantWeightKg);
+                }
+                rawMat.unitWeightVariants = existingVariants;
+                if (!rawMat.unitWeightKg) {
+                    rawMat.unitWeightKg = itemVariantWeightKg;
+                }
+            }
+
             if (item.expiryDate) {
                 const itemExp = parseDateSafe(item.expiryDate);
                 if (!rawMat.earliestExpiryDate || itemExp < new Date(rawMat.earliestExpiryDate)) {
@@ -1136,6 +1237,7 @@ exports.recordGRN = async (req, res) => {
                 quantity: qty,
                 balanceAfter: newStock,
                 unit: rawMat.baseUnit,
+                unitWeightKg: itemVariantWeightKg,
                 rate: rate,
                 totalAmount: qty * rate,
                 grnNumber: autoGrn,
@@ -1149,7 +1251,7 @@ exports.recordGRN = async (req, res) => {
                 createdAt: date
             });
 
-            processedItems.push({ rawMat, ledger });
+            processedItems.push({ rawMat: ensureDocVariants(rawMat.toObject()), ledger });
         }
 
         res.status(201).json({
@@ -1175,7 +1277,8 @@ exports.updateGRN = async (req, res) => {
             vendor,
             reason,
             grnNumber,
-            rawMaterialId
+            rawMaterialId,
+            unitWeightKg
         } = req.body;
 
         const entry = await StockLedger.findById(id);
@@ -1268,6 +1371,12 @@ exports.updateGRN = async (req, res) => {
         }
         if (reason !== undefined) entry.reason = reason;
         if (grnNumber !== undefined) entry.grnNumber = grnNumber;
+        if (unitWeightKg !== undefined) {
+            entry.unitWeightKg =
+                unitWeightKg !== null && unitWeightKg !== '' && Number(unitWeightKg) > 0
+                    ? parseFloat(Number(unitWeightKg).toFixed(4))
+                    : null;
+        }
 
         await entry.save();
 
@@ -1910,13 +2019,17 @@ exports.calculateMRP = async (req, res) => {
                         const batchesList = incomingInfo ? incomingInfo.batches : [];
                         const latestDate = batchesList.length > 0 ? batchesList[0].orderDate : null;
 
+                        const rmVariants = rm ? ensureDocVariants(rm.toObject()).unitWeightVariants : [];
+                        const defaultWeightKg = rm ? (rm.unitWeightKg || rmVariants[0] || null) : null;
+
                         reqMap.set(key, {
                             rawMaterialId: rmId,
                             materialName: rm ? rm.name : ing.materialName,
                             materialCode: rm ? rm.code : ing.materialCode,
                             storageType: rm ? rm.storageType : ing.storageType,
                             baseUnit: rm ? rm.baseUnit : ing.unit,
-                            unitWeightKg: rm ? rm.unitWeightKg : null,
+                            unitWeightKg: defaultWeightKg,
+                            unitWeightVariants: rmVariants,
                             currentStock: rm ? rm.currentStock : 0,
                             leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
                             packSize: rm ? rm.packSize : 1,
@@ -2014,13 +2127,17 @@ exports.calculateMRP = async (req, res) => {
                         const batchesList = incomingInfo ? incomingInfo.batches : [];
                         const latestDate = batchesList.length > 0 ? batchesList[0].orderDate : null;
 
+                        const rmVariants = rm ? ensureDocVariants(rm.toObject()).unitWeightVariants : [];
+                        const defaultWeightKg = rm ? (rm.unitWeightKg || rmVariants[0] || null) : null;
+
                         reqMap.set(key, {
                             rawMaterialId: rmId,
                             materialName: rm ? rm.name : ing.materialName,
                             materialCode: rm ? rm.code : ing.materialCode,
                             storageType: rm ? rm.storageType : ing.storageType,
                             baseUnit: rm ? rm.baseUnit : ing.unit,
-                            unitWeightKg: rm ? rm.unitWeightKg : null,
+                            unitWeightKg: defaultWeightKg,
+                            unitWeightVariants: rmVariants,
                             currentStock: rm ? rm.currentStock : 0,
                             leadTimeDays: rm ? (rm.leadTimeDays || 1) : 1,
                             packSize: rm ? rm.packSize : 1,
@@ -2512,7 +2629,17 @@ exports.createMaterialIssue = async (req, res) => {
 
             const issuedQty = Number(it.actualIssuedQty) || 0;
             const theoreticalGross = Number(it.theoreticalGrossQty) || 0;
-            const variance = issuedQty - theoreticalGross;
+
+            const selectedUnitWeightKg =
+                it.unitWeightKg !== undefined && it.unitWeightKg !== null && it.unitWeightKg !== '' && Number(it.unitWeightKg) > 0
+                    ? parseFloat(Number(it.unitWeightKg).toFixed(4))
+                    : (rawMat.unitWeightKg || (Array.isArray(rawMat.unitWeightVariants) && rawMat.unitWeightVariants[0]) || null);
+
+            const issuedInKg =
+                !isStandardBaseUnit(rawMat.baseUnit) && selectedUnitWeightKg > 0
+                    ? issuedQty * selectedUnitWeightKg
+                    : issuedQty;
+            const variance = issuedInKg - theoreticalGross;
             const variancePercent = theoreticalGross > 0 ? parseFloat(((variance / theoreticalGross) * 100).toFixed(3)) : 0;
 
             // Deduct stock from RawMaterial
@@ -2529,11 +2656,12 @@ exports.createMaterialIssue = async (req, res) => {
                 quantity: -issuedQty,
                 balanceAfter: newStock,
                 unit: rawMat.baseUnit,
+                unitWeightKg: selectedUnitWeightKg,
                 rate: rawMat.lastPurchaseRate,
                 totalAmount: issuedQty * rawMat.lastPurchaseRate,
                 storageType: rawMat.storageType,
                 referenceId: autoIssueNumber,
-                reason: `Kitchen store issue for ${numBatches} batch(es) of ${resolvedProduct || 'Recipe'}${productionOrderId ? ` (PO #${productionOrderId})` : ''}`,
+                reason: `Kitchen store issue for ${numBatches} batch(es) of ${resolvedProduct || 'Recipe'}${selectedUnitWeightKg ? ` [1 ${rawMat.baseUnit} = ${selectedUnitWeightKg} kg]` : ''}${productionOrderId ? ` (PO #${productionOrderId})` : ''}`,
                 createdBy: kitchenSupervisor || 'Kitchen Supervisor',
                 createdAt: parsedIssueDate
             });
@@ -2548,7 +2676,8 @@ exports.createMaterialIssue = async (req, res) => {
                 theoreticalGrossQty: theoreticalGross,
                 actualIssuedQty: issuedQty,
                 unit: rawMat.baseUnit,
-                unitWeightKg: rawMat.unitWeightKg || null,
+                unitWeightKg: selectedUnitWeightKg,
+                recipeGrossKg: it.recipeGrossKg ? Number(it.recipeGrossKg) : null,
                 varianceQty: parseFloat(variance.toFixed(3)),
                 variancePercent,
                 lotsUsed: [{
