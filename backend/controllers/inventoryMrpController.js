@@ -1109,49 +1109,94 @@ exports.getStockLedger = async (req, res) => {
 
 exports.recordAdjustment = async (req, res) => {
     try {
-        const { rawMaterialId, adjustmentType, quantity, reason, createdBy } = req.body;
+        const { items, reason: globalReason, createdBy } = req.body;
 
-        const rawMat = await RawMaterial.findById(rawMaterialId);
-        if (!rawMat) {
-            return res.status(404).json({ success: false, message: 'Raw material not found' });
+        // Support both multi-row { items: [...] } and legacy single-item payload
+        const rows = Array.isArray(items) && items.length > 0
+            ? items
+            : [
+                {
+                    rawMaterialId: req.body.rawMaterialId,
+                    adjustmentType: req.body.adjustmentType,
+                    quantity: req.body.quantity,
+                    unitWeightKg: req.body.unitWeightKg,
+                    reason: req.body.reason
+                }
+            ];
+
+        const validatedRows = [];
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row.rawMaterialId) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Row #${i + 1}: Please select a raw material`
+                });
+            }
+            const qtyNum = Number(row.quantity);
+            if (isNaN(qtyNum) || qtyNum === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Row #${i + 1}: Valid non-zero quantity is required`
+                });
+            }
+            validatedRows.push({
+                rawMaterialId: row.rawMaterialId,
+                adjustmentType: row.adjustmentType || req.body.adjustmentType || 'WRITE_OFF',
+                qtyNum,
+                unitWeightKg: row.unitWeightKg,
+                reason: (row.reason && String(row.reason).trim()) || (globalReason && String(globalReason).trim()) || 'Manual stock adjustment'
+            });
         }
 
-        const qtyNum = Number(quantity);
-        if (isNaN(qtyNum) || qtyNum === 0) {
-            return res.status(400).json({ success: false, message: 'Valid quantity is required' });
+        const results = [];
+        for (const item of validatedRows) {
+            const rawMat = await RawMaterial.findById(item.rawMaterialId);
+            if (!rawMat) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Raw material not found'
+                });
+            }
+
+            // adjustmentType: 'WRITE_OFF' (deduction) or 'AUDIT_CORRECTION' (can be + or -)
+            const delta = item.adjustmentType === 'WRITE_OFF' ? -Math.abs(item.qtyNum) : item.qtyNum;
+            const newBalance = Math.max(0, rawMat.currentStock + delta);
+
+            rawMat.currentStock = newBalance;
+            await rawMat.save();
+
+            const selectedWeightKg =
+                item.unitWeightKg !== undefined && item.unitWeightKg !== '' && Number(item.unitWeightKg) > 0
+                    ? Number(item.unitWeightKg)
+                    : rawMat.unitWeightKg || null;
+
+            const ledgerEntry = await StockLedger.create({
+                rawMaterial: rawMat._id,
+                materialName: rawMat.name,
+                transactionType: item.adjustmentType === 'WRITE_OFF' ? 'WRITE_OFF' : 'ADJUSTMENT',
+                quantity: delta,
+                balanceAfter: newBalance,
+                unit: rawMat.baseUnit,
+                unitWeightKg: selectedWeightKg,
+                rate: rawMat.lastPurchaseRate,
+                totalAmount: Math.abs(delta) * rawMat.lastPurchaseRate,
+                storageType: rawMat.storageType,
+                reason: item.reason,
+                createdBy: createdBy || 'Admin'
+            });
+
+            results.push({
+                material: ensureDocVariants(rawMat.toObject()),
+                ledger: ledgerEntry
+            });
         }
-
-        // adjustmentType: 'WRITE_OFF' (deduction) or 'AUDIT_CORRECTION' (can be + or -)
-        const delta = adjustmentType === 'WRITE_OFF' ? -Math.abs(qtyNum) : qtyNum;
-        const newBalance = Math.max(0, rawMat.currentStock + delta);
-
-        rawMat.currentStock = newBalance;
-        await rawMat.save();
-
-        const selectedWeightKg =
-            req.body.unitWeightKg !== undefined && Number(req.body.unitWeightKg) > 0
-                ? Number(req.body.unitWeightKg)
-                : rawMat.unitWeightKg || null;
-
-        const ledgerEntry = await StockLedger.create({
-            rawMaterial: rawMat._id,
-            materialName: rawMat.name,
-            transactionType: adjustmentType === 'WRITE_OFF' ? 'WRITE_OFF' : 'ADJUSTMENT',
-            quantity: delta,
-            balanceAfter: newBalance,
-            unit: rawMat.baseUnit,
-            unitWeightKg: selectedWeightKg,
-            rate: rawMat.lastPurchaseRate,
-            totalAmount: Math.abs(delta) * rawMat.lastPurchaseRate,
-            storageType: rawMat.storageType,
-            reason: reason || 'Manual stock adjustment',
-            createdBy: createdBy || 'Admin'
-        });
 
         res.status(200).json({
             success: true,
-            message: 'Stock adjustment recorded successfully',
-            data: { material: ensureDocVariants(rawMat.toObject()), ledger: ledgerEntry }
+            message: `Stock adjustment recorded successfully for ${results.length} item(s)`,
+            data: results.length === 1 ? results[0] : results,
+            results
         });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });

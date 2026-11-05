@@ -16,7 +16,8 @@ import {
   ArrowLeft,
   Clock,
   Calendar,
-  Scale
+  Scale,
+  Trash2
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL } from '../../redux/Utils/constants';
@@ -111,12 +112,17 @@ const RawMaterials = () => {
   const [savingUnit, setSavingUnit] = useState(false);
 
   const [adjustment, setAdjustment] = useState({
-    rawMaterialId: '',
-    adjustmentType: 'WRITE_OFF',
-    quantity: '',
-    unitWeightKg: '',
     reason: '',
-    createdBy: 'Store In-charge'
+    createdBy: 'Store In-charge',
+    items: [
+      {
+        rawMaterialId: '',
+        adjustmentType: 'WRITE_OFF',
+        quantity: '',
+        unitWeightKg: '',
+        reason: ''
+      }
+    ]
   });
 
   // Excel Upload States
@@ -235,24 +241,87 @@ const RawMaterials = () => {
     }
   };
 
+  const addAdjustmentRow = () => {
+    setAdjustment((prev) => ({
+      ...prev,
+      items: [
+        ...(prev.items || []),
+        {
+          rawMaterialId: '',
+          adjustmentType: 'WRITE_OFF',
+          quantity: '',
+          unitWeightKg: '',
+          reason: ''
+        }
+      ]
+    }));
+  };
+
+  const removeAdjustmentRow = (idx) => {
+    setAdjustment((prev) => {
+      const updated = (prev.items || []).filter((_, i) => i !== idx);
+      return {
+        ...prev,
+        items:
+          updated.length > 0
+            ? updated
+            : [
+                {
+                  rawMaterialId: '',
+                  adjustmentType: 'WRITE_OFF',
+                  quantity: '',
+                  unitWeightKg: '',
+                  reason: ''
+                }
+              ]
+      };
+    });
+  };
+
+  const updateAdjustmentRow = (idx, field, value) => {
+    setAdjustment((prev) => {
+      const updated = [...(prev.items || [])];
+      updated[idx] = { ...updated[idx], [field]: value };
+      if (field === 'rawMaterialId') {
+        const sel = materials.find((m) => m._id === value);
+        const vars = getMaterialVariants(sel);
+        updated[idx].unitWeightKg = isNonStandardUnit(sel?.baseUnit) && vars.length > 0 ? String(vars[0]) : '';
+      }
+      return { ...prev, items: updated };
+    });
+  };
+
   const handleAdjustStock = async (e) => {
     e.preventDefault();
-    if (!adjustment.rawMaterialId || !adjustment.quantity) {
-      toast.error('Material and quantity are required');
+    const rows = adjustment.items || [];
+    if (rows.length === 0) {
+      toast.error('Please add at least one adjustment row');
+      return;
+    }
+    const invalidIdx = rows.findIndex(
+      (r) => !r.rawMaterialId || r.quantity === '' || isNaN(Number(r.quantity)) || Number(r.quantity) === 0
+    );
+    if (invalidIdx !== -1) {
+      toast.error(`Row #${invalidIdx + 1}: Please select a material and enter a non-zero quantity`);
       return;
     }
     try {
       const res = await apiConnector(`${INVENTORY_MRP_URL}/ledger/adjust`, 'POST', adjustment);
       if (res.data?.success) {
-        toast.success('Stock adjusted successfully');
+        toast.success(res.data.message || `Stock adjusted for ${rows.length} item(s) successfully`);
         setShowAdjustModal(false);
         setAdjustment({
-          rawMaterialId: '',
-          adjustmentType: 'WRITE_OFF',
-          quantity: '',
-          unitWeightKg: '',
           reason: '',
-          createdBy: 'Store In-charge'
+          createdBy: 'Store In-charge',
+          items: [
+            {
+              rawMaterialId: '',
+              adjustmentType: 'WRITE_OFF',
+              quantity: '',
+              unitWeightKg: '',
+              reason: ''
+            }
+          ]
         });
         fetchMaterials();
       }
@@ -1031,127 +1100,219 @@ const RawMaterials = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-md p-6"
+              className="bg-gray-900 border border-white/15 rounded-2xl w-full max-w-4xl p-6 max-h-[90vh] flex flex-col"
             >
-              <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-5">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4 shrink-0">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="w-5 h-5 text-orange-400" />
+                    <h3 className="text-lg font-bold">Manual Stock Adjustment</h3>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Adjust stock balances for one or multiple raw materials at once
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="w-5 h-5 text-orange-400" />
-                  <h3 className="text-lg font-bold">Manual Stock Adjustment</h3>
-                </div>
-                <button
-                  onClick={() => setShowAdjustModal(false)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={handleAdjustStock} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">Select Raw Material *</label>
-                  <select
-                    required
-                    value={adjustment.rawMaterialId}
-                    onChange={(e) => {
-                      const matId = e.target.value;
-                      const sel = materials.find((m) => m._id === matId);
-                      const vars = getMaterialVariants(sel);
-                      setAdjustment({
-                        ...adjustment,
-                        rawMaterialId: matId,
-                        unitWeightKg: vars.length > 0 ? String(vars[0]) : ''
-                      });
-                    }}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                  >
-                    <option value="">-- Choose Ingredient --</option>
-                    {materials.map((m) => (
-                      <option key={m._id} value={m._id}>
-                        {m.name} (Current: {format3Decimals(m.currentStock)} {m.baseUnit})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {(() => {
-                  const sel = materials.find((m) => m._id === adjustment.rawMaterialId);
-                  const vars = getMaterialVariants(sel);
-                  if (!sel || !isNonStandardUnit(sel.baseUnit) || vars.length === 0) return null;
-                  return (
-                    <div>
-                      <label className="block text-xs font-medium text-primary mb-1">
-                        Select Variant ({sel.baseUnit} Weight in Kg)
-                      </label>
-                      <select
-                        value={adjustment.unitWeightKg || vars[0]}
-                        onChange={(e) => setAdjustment({ ...adjustment, unitWeightKg: e.target.value })}
-                        className="w-full bg-black border border-primary/40 rounded-xl px-3.5 py-2 text-sm text-emerald-300 font-mono focus:outline-none focus:border-primary"
-                      >
-                        {vars.map((v, idx) => (
-                          <option key={idx} value={v}>
-                            1 {sel.baseUnit} = {format3Decimals(v)} kg
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })()}
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">Adjustment Type</label>
-                  <select
-                    value={adjustment.adjustmentType}
-                    onChange={(e) => setAdjustment({ ...adjustment, adjustmentType: e.target.value })}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                  >
-                    <option value="WRITE_OFF">Write-Off (Spoilage, Damage, Cutting Waste)</option>
-                    <option value="AUDIT_CORRECTION">Audit Correction (+ or -)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Quantity * {(() => {
-                      const sel = materials.find((m) => m._id === adjustment.rawMaterialId);
-                      return sel ? `(${sel.baseUnit})` : '';
-                    })()}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    required
-                    placeholder="Enter quantity"
-                    value={adjustment.quantity}
-                    onChange={(e) => setAdjustment({ ...adjustment, quantity: e.target.value })}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">Reason / Notes</label>
-                  <textarea
-                    rows="2"
-                    placeholder="e.g. 5 tin puree spoiled or 10 pcs damaged during storage"
-                    value={adjustment.reason}
-                    onChange={(e) => setAdjustment({ ...adjustment, reason: e.target.value })}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                   <button
                     type="button"
-                    onClick={() => setShowAdjustModal(false)}
-                    className="px-4 py-2 rounded-xl text-gray-400 hover:text-white text-sm"
+                    onClick={addAdjustmentRow}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/30 text-orange-300 text-xs font-semibold transition-colors"
                   >
-                    Cancel
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Row
                   </button>
                   <button
-                    type="submit"
-                    className="px-5 py-2 rounded-xl bg-orange-500 text-black font-semibold hover:bg-orange-400 text-sm"
+                    onClick={() => setShowAdjustModal(false)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
                   >
-                    Apply Adjustment
+                    <X className="w-5 h-5" />
                   </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleAdjustStock} className="flex flex-col flex-1 min-h-0 space-y-4">
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {(adjustment.items || []).map((row, idx) => {
+                    const sel = materials.find((m) => m._id === row.rawMaterialId);
+                    const vars = getMaterialVariants(sel);
+                    const isNonStd = isNonStandardUnit(sel?.baseUnit);
+                    const activeVarKg = Number(row.unitWeightKg) || vars[0] || 0;
+                    const qtyVal = Number(row.quantity) || 0;
+                    const delta = row.adjustmentType === 'WRITE_OFF' ? -Math.abs(qtyVal) : qtyVal;
+                    const projectedStock = sel ? Math.max(0, Number(sel.currentStock || 0) + delta) : null;
+
+                    return (
+                      <div
+                        key={idx}
+                        className="bg-black/50 border border-white/10 rounded-xl p-3.5 space-y-2.5"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                          {/* Row Number & Material Select */}
+                          <div className="md:col-span-4">
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                              #{idx + 1} Raw Material *
+                            </label>
+                            <select
+                              required
+                              value={row.rawMaterialId}
+                              onChange={(e) => updateAdjustmentRow(idx, 'rawMaterialId', e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                            >
+                              <option value="">-- Choose Ingredient --</option>
+                              {materials.map((m) => (
+                                <option key={m._id} value={m._id}>
+                                  {m.name} (Stock: {format3Decimals(m.currentStock)} {m.baseUnit})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Adjustment Type */}
+                          <div className="md:col-span-3">
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                              Adjustment Type
+                            </label>
+                            <select
+                              value={row.adjustmentType}
+                              onChange={(e) => updateAdjustmentRow(idx, 'adjustmentType', e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                            >
+                              <option value="WRITE_OFF">Write-Off (- Deduction)</option>
+                              <option value="AUDIT_CORRECTION">Audit Correction (+ or -)</option>
+                            </select>
+                          </div>
+
+                          {/* Quantity */}
+                          <div className="md:col-span-2">
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                              Quantity * {sel ? `(${sel.baseUnit})` : ''}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.001"
+                              required
+                              placeholder={row.adjustmentType === 'WRITE_OFF' ? 'e.g. 5' : 'e.g. +5 or -5'}
+                              value={row.quantity}
+                              onChange={(e) => updateAdjustmentRow(idx, 'quantity', e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-primary"
+                            />
+                          </div>
+
+                          {/* Row Reason & Remove Button */}
+                          <div className="md:col-span-3">
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                              Item Reason / Note
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                placeholder="e.g. Spoiled / Audit count"
+                                value={row.reason}
+                                onChange={(e) => updateAdjustmentRow(idx, 'reason', e.target.value)}
+                                className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                              />
+                              {(adjustment.items || []).length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAdjustmentRow(idx)}
+                                  title="Remove Row"
+                                  className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 shrink-0 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Non-Standard Variant Selector & Live Stock Balance Preview */}
+                        {sel && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isNonStd && vars.length > 0 && (
+                                <>
+                                  <span className="text-[11px] font-semibold text-primary">
+                                    Select {sel.baseUnit} Variant:
+                                  </span>
+                                  <select
+                                    value={row.unitWeightKg || vars[0]}
+                                    onChange={(e) => updateAdjustmentRow(idx, 'unitWeightKg', e.target.value)}
+                                    className="bg-black border border-primary/40 rounded-lg px-2.5 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-primary cursor-pointer"
+                                  >
+                                    {vars.map((v, vIdx) => (
+                                      <option key={vIdx} value={v}>
+                                        1 {sel.baseUnit} = {format3Decimals(v)} kg
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {qtyVal !== 0 && activeVarKg > 0 && (
+                                    <span className="text-[11px] font-mono text-emerald-400">
+                                      ({format3Decimals(Math.abs(delta) * activeVarKg)} kg)
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            <div className="text-[11px] font-mono text-gray-400 ml-auto">
+                              Current: <span className="text-white">{format3Decimals(sel.currentStock)} {sel.baseUnit}</span>
+                              {row.quantity !== '' && !isNaN(qtyVal) && qtyVal !== 0 && (
+                                <>
+                                  {' → '}New Balance:{' '}
+                                  <span className="text-orange-300 font-bold">
+                                    {format3Decimals(projectedStock)} {sel.baseUnit}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2 border-t border-white/10 shrink-0 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">
+                      General Reason / Remarks (Optional — applies if item note is blank)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Monthly physical stock audit or spoilage write-off"
+                      value={adjustment.reason}
+                      onChange={(e) => setAdjustment({ ...adjustment, reason: e.target.value })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={addAdjustmentRow}
+                      className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 font-semibold"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add Another Material Row
+                    </button>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowAdjustModal(false)}
+                        className="px-4 py-2 rounded-xl text-gray-400 hover:text-white text-sm"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 rounded-xl bg-orange-500 text-black font-semibold hover:bg-orange-400 text-sm"
+                      >
+                        Apply Adjustment ({(adjustment.items || []).length}{' '}
+                        {(adjustment.items || []).length === 1 ? 'Item' : 'Items'})
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </form>
             </motion.div>
