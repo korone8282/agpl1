@@ -8,8 +8,14 @@ const { createProduct ,
         readProduct, 
         updateDispProduct,
         updatePouches,
-        updaterOne} = require('../controllers/product');
+        updaterOne,
+        getPouchSummary,
+        updatePouchConfig,
+        updateUniversalPouch } = require('../controllers/product');
 
+router.get("/pouch-summary", getPouchSummary);
+router.put("/pouch-config/:id", authorization, authAdmin, updatePouchConfig);
+router.put("/universal-pouch", authorization, authAdmin, updateUniversalPouch);
 router.get("/dispUpdater",updaterOne)
 router.route("/:buyer").post(authorization,authAdmin,createProduct);
 router.delete("/:productId",authorization,authAdmin,deleteProduct);

@@ -1711,7 +1711,10 @@ exports.createBuyerOrder = async (req, res) => {
                 recipe: recipeId,
                 productName: it.productName.trim(),
                 targetPouches: Number(it.targetPouches),
-                packSize: Number(it.packSize) || 1,
+                packSize: it.packSize ? String(it.packSize) : '1',
+                pouchType: it.pouchType || 'exclusive',
+                pouchStock: it.pouchStock !== undefined && it.pouchStock !== '' ? Number(it.pouchStock) : 0,
+                dueArrivalDate: it.dueArrivalDate ? String(it.dueArrivalDate).trim() : '',
                 notes: it.notes || ''
             });
         }
@@ -1780,12 +1783,15 @@ exports.updateBuyerOrder = async (req, res) => {
                     });
                 }
                 if (rec) recipeId = rec._id;
-                const packSize = Number(it.packSize) || (rec && rec.packSizes && rec.packSizes[0]) || 1;
+                const packSize = it.packSize || (rec && rec.packSizes && rec.packSizes[0]) || 1;
                 processedItems.push({
                     recipe: recipeId,
                     productName: it.productName.trim(),
                     targetPouches: Number(it.targetPouches),
-                    packSize: packSize,
+                    packSize: String(packSize),
+                    pouchType: it.pouchType || 'exclusive',
+                    pouchStock: it.pouchStock !== undefined && it.pouchStock !== '' ? Number(it.pouchStock) : 0,
+                    dueArrivalDate: it.dueArrivalDate ? String(it.dueArrivalDate).trim() : '',
                     notes: it.notes || ''
                 });
             }
@@ -1808,6 +1814,239 @@ exports.deleteBuyerOrder = async (req, res) => {
         await BuyerOrder.findByIdAndDelete(req.params.id);
         res.status(200).json({ success: true, message: 'Buyer order deleted successfully' });
     } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.syncPouchTracker = async (req, res) => {
+    try {
+        const { rows } = req.body;
+        if (!Array.isArray(rows)) {
+            return res.status(400).json({ success: false, message: 'Rows array is required' });
+        }
+
+        // Filter out blank rows
+        const validRows = rows.filter(r => (r.productName && String(r.productName).trim()) || (r.orderNumber && String(r.orderNumber).trim()));
+
+        // Group rows by order identifier
+        const orderMap = new Map();
+        for (const row of validRows) {
+            const rawPo = row.orderNumber ? String(row.orderNumber).trim() : '';
+            const rawOrderId = row.orderId ? String(row.orderId).trim() : '';
+            const key = rawPo || rawOrderId || `ORDER_${Date.now()}_${Math.random()}`;
+            if (!orderMap.has(key)) {
+                orderMap.set(key, []);
+            }
+            orderMap.get(key).push(row);
+        }
+
+        const touchedOrderIds = new Set();
+
+        for (const [key, groupRows] of orderMap.entries()) {
+            const first = groupRows[0];
+            let order = null;
+
+            if (first.orderId) {
+                order = await BuyerOrder.findById(first.orderId);
+            }
+            if (!order && first.orderNumber && String(first.orderNumber).trim()) {
+                order = await BuyerOrder.findOne({ orderNumber: String(first.orderNumber).trim() });
+            }
+
+            const targetBuyerName = (first.buyerName && String(first.buyerName).trim()) || (order ? order.buyerName : 'General');
+            const targetOrderNumber = (first.orderNumber && String(first.orderNumber).trim()) || (order ? order.orderNumber : generate4to5DigitCode('BO'));
+
+            // Check if any row in group has a valid date for deliveryDate
+            let targetDeliveryDate = order ? order.deliveryDate : null;
+            const rowWithDate = groupRows.find(r => r.dueArrivalDate && !isNaN(new Date(r.dueArrivalDate).getTime()));
+            if (rowWithDate) {
+                targetDeliveryDate = new Date(rowWithDate.dueArrivalDate);
+            }
+
+            const processedItems = [];
+            for (const r of groupRows) {
+                if (!r.productName || !String(r.productName).trim()) continue;
+                const pName = String(r.productName).trim();
+                let recipe = null;
+                if (targetBuyerName) {
+                    recipe = await Recipe.findOne({
+                        buyerName: { $regex: `^${escapeRegex(targetBuyerName)}$`, $options: 'i' },
+                        productName: { $regex: `^${escapeRegex(pName)}$`, $options: 'i' }
+                    });
+                }
+                if (!recipe) {
+                    recipe = await Recipe.findOne({
+                        productName: { $regex: `^${escapeRegex(pName)}$`, $options: 'i' }
+                    });
+                }
+
+                const packSize = r.packSize || (recipe && recipe.packSizes && recipe.packSizes[0]) || 1;
+                processedItems.push({
+                    recipe: recipe ? recipe._id : undefined,
+                    productName: pName,
+                    targetPouches: Math.max(0, Number(r.targetPouches !== undefined ? r.targetPouches : r.pouchesRequired) || 0),
+                    packSize: String(packSize),
+                    pouchType: r.pouchType || 'exclusive',
+                    pouchStock: Number(r.pouchStock) || 0,
+                    dueArrivalDate: r.dueArrivalDate ? String(r.dueArrivalDate).trim() : '',
+                    notes: r.notes || ''
+                });
+            }
+
+            if (processedItems.length === 0) continue;
+
+            if (order) {
+                order.orderNumber = targetOrderNumber;
+                order.buyerName = targetBuyerName;
+                if (targetDeliveryDate) order.deliveryDate = targetDeliveryDate;
+                order.items = processedItems;
+                await order.save();
+                touchedOrderIds.add(String(order._id));
+            } else {
+                const newOrder = await BuyerOrder.create({
+                    orderNumber: targetOrderNumber,
+                    buyerName: targetBuyerName,
+                    deliveryDate: targetDeliveryDate,
+                    items: processedItems,
+                    status: 'PENDING',
+                    notes: ''
+                });
+                touchedOrderIds.add(String(newOrder._id));
+            }
+        }
+
+        // Clean up any existing order whose items were entirely removed
+        const allOrders = await BuyerOrder.find();
+        for (const ord of allOrders) {
+            const hadRowReferencing = validRows.some(r => r.orderId && String(r.orderId) === String(ord._id));
+            if (hadRowReferencing && !touchedOrderIds.has(String(ord._id))) {
+                await BuyerOrder.findByIdAndDelete(ord._id);
+            }
+        }
+
+        const updatedOrders = await BuyerOrder.find().sort({ createdAt: -1 });
+        res.status(200).json({
+            success: true,
+            message: 'PO Pouch Tracker changes saved successfully',
+            count: updatedOrders.length,
+            data: updatedOrders
+        });
+    } catch (err) {
+        console.error('syncPouchTracker error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.exportPouchTrackerExcel = async (req, res) => {
+    try {
+        const { rows } = req.body;
+        let dataRows = rows;
+        if (!Array.isArray(dataRows) || dataRows.length === 0) {
+            const allBuyerOrders = await BuyerOrder.find().sort({ createdAt: -1 });
+            dataRows = [];
+            allBuyerOrders.forEach((bo) => {
+                (bo.items || []).forEach((it) => {
+                    dataRows.push({
+                        orderNumber: bo.orderNumber,
+                        buyerName: bo.buyerName,
+                        productName: it.productName,
+                        targetPouches: it.targetPouches,
+                        packSize: it.packSize || '',
+                        pouchType: it.pouchType || 'exclusive',
+                        pouchStock: it.pouchStock || 0,
+                        dueArrivalDate: it.dueArrivalDate || (bo.deliveryDate ? new Date(bo.deliveryDate).toISOString().split('T')[0] : '')
+                    });
+                });
+            });
+        }
+
+        // Calculate progressive running balance per pool if not already attached
+        const runningPoolStock = new Map();
+        const calculatedRows = dataRows.map((r) => {
+            const isUniversal = r.pouchType === 'universal';
+            const packSizeStr = String(r.packSize || '').trim();
+            const poolKey = isUniversal
+                ? `universal_${String(r.buyerName || '').trim().toLowerCase()}_${packSizeStr.toLowerCase()}`
+                : `exclusive_${String(r.buyerName || '').trim().toLowerCase()}_${String(r.productName || '').trim().toLowerCase()}`;
+
+            const req = Number(r.targetPouches !== undefined ? r.targetPouches : r.pouchesRequired || 0);
+
+            let available = r.availablePouchStock;
+            if (available === undefined || available === null) {
+                if (!runningPoolStock.has(poolKey)) {
+                    runningPoolStock.set(poolKey, Number(r.pouchStock || 0));
+                }
+                available = runningPoolStock.get(poolKey);
+            }
+
+            let due = r.dueBalance;
+            if (due === undefined || due === null) {
+                due = available - req;
+                runningPoolStock.set(poolKey, due);
+            }
+
+            return {
+                ...r,
+                req,
+                available,
+                due
+            };
+        });
+
+        const aoa = [];
+        aoa.push([
+            'S No.',
+            'PO No.',
+            'Buyer Name',
+            'Product Name',
+            'Packaging / Pouch Type',
+            'Pouches Required',
+            'Pouch Stock',
+            'Due / Balance',
+            'Due & Arrival Date'
+        ]);
+
+        calculatedRows.forEach((r, idx) => {
+            const dueStr = r.due > 0 ? `+${r.due}` : String(r.due);
+            const pouchTypeLabel = r.pouchType === 'universal'
+                ? `Universal (${r.packSize || 'Shared'})`
+                : 'Exclusive';
+
+            aoa.push([
+                idx + 1,
+                r.orderNumber || '',
+                r.buyerName || '',
+                r.productName || '',
+                pouchTypeLabel,
+                r.req,
+                r.available,
+                dueStr,
+                r.dueArrivalDate || ''
+            ]);
+        });
+
+        const ws = xlsx.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = [
+            { wch: 8 },
+            { wch: 18 },
+            { wch: 24 },
+            { wch: 32 },
+            { wch: 24 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 16 },
+            { wch: 22 }
+        ];
+
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, 'PO Pouch Tracker');
+
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="PO_Pouch_Tracker.xlsx"');
+        return res.status(200).send(buffer);
+    } catch (err) {
+        console.error('exportPouchTrackerExcel error:', err);
         res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -2685,11 +2924,11 @@ exports.createMaterialIssue = async (req, res) => {
                     ? issuedQty * selectedUnitWeightKg
                     : issuedQty;
             const variance = issuedInKg - theoreticalGross;
-            const variancePercent = theoreticalGross > 0 ? parseFloat(((variance / theoreticalGross) * 100).toFixed(3)) : 0;
+            const variancePercent = theoreticalGross > 0 ? parseFloat(((variance / theoreticalGross) * 100).toFixed(4)) : 0;
 
             // Deduct stock from RawMaterial
             const oldStock = rawMat.currentStock;
-            const newStock = Math.max(0, rawMat.currentStock - issuedQty);
+            const newStock = Math.max(0, parseFloat((rawMat.currentStock - issuedQty).toFixed(4)));
             rawMat.currentStock = newStock;
             await rawMat.save();
 
@@ -2714,8 +2953,8 @@ exports.createMaterialIssue = async (req, res) => {
             processedItems.push({
                 rawMaterial: rawMat._id,
                 materialName: rawMat.name,
-                openingStock: parseFloat(oldStock.toFixed(3)),
-                closingStock: parseFloat(newStock.toFixed(3)),
+                openingStock: parseFloat(oldStock.toFixed(4)),
+                closingStock: parseFloat(newStock.toFixed(4)),
                 theoreticalEdibleQty: Number(it.theoreticalEdibleQty) || 0,
                 lossFactor: Number(it.lossFactor) || 1.0,
                 theoreticalGrossQty: theoreticalGross,
@@ -2723,7 +2962,7 @@ exports.createMaterialIssue = async (req, res) => {
                 unit: rawMat.baseUnit,
                 unitWeightKg: selectedUnitWeightKg,
                 recipeGrossKg: it.recipeGrossKg ? Number(it.recipeGrossKg) : null,
-                varianceQty: parseFloat(variance.toFixed(3)),
+                varianceQty: parseFloat(variance.toFixed(4)),
                 variancePercent,
                 lotsUsed: [{
                     ledgerId: ledgerEntry._id,
@@ -2751,7 +2990,7 @@ exports.createMaterialIssue = async (req, res) => {
             kitchenSupervisor: kitchenSupervisor || '',
             buyerName: resolvedBuyer || 'General',
             productName: resolvedProduct || (processedItems[0]?.materialName ? `Recipe for ${processedItems[0].materialName}` : 'Recipe Issue'),
-            totalIssuedKg: parseFloat(totalIssuedKg.toFixed(3)),
+            totalIssuedKg: parseFloat(totalIssuedKg.toFixed(4)),
             items: processedItems,
             notes: notes || ''
         });

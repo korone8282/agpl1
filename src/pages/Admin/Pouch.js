@@ -37,7 +37,43 @@ const Pouch = () => {
       month: currentMonth,
       product:""
   });
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(false);
+  const [configModal, setConfigModal] = useState({
+    isOpen: false,
+    product: null,
+    pouchType: 'exclusive',
+    packSize: ''
+  });
+
+  const openConfigModal = (element) => {
+    setConfigModal({
+      isOpen: true,
+      product: element,
+      pouchType: element.pouchType || 'exclusive',
+      packSize: element.packSize || ''
+    });
+    setActionOpenId(null);
+  };
+
+  const handleSavePouchConfig = async () => {
+    try {
+      if (!configModal.product) return;
+      await apiConnector(
+        `${PRODUCT_URL}/pouch-config/${configModal.product._id}`,
+        "PUT",
+        {
+          pouchType: configModal.pouchType,
+          packSize: configModal.packSize
+        },
+        { Authorization: `Bearer ${userinfo.token}` }
+      );
+      toast("Pouch configuration updated successfully");
+      setConfigModal({ isOpen: false, product: null, pouchType: 'exclusive', packSize: '' });
+      await getProducts();
+    } catch (err) {
+      toast(err.response?.data?.message || "Failed to update pouch configuration");
+    }
+  };
 
 const months = [{month:"January"},
                 {month:"February"},
@@ -162,26 +198,52 @@ const months = [{month:"January"},
   const getStockEntries = (element) =>
     element.pouches?.[month - 1]?.entries || [];
 
+  const normalizePackSize = (val) => {
+    if (!val && val !== 0) return '';
+    const s = String(val).trim().toLowerCase();
+    const num = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(num) || num <= 0) return s;
+    if (s.includes('kg') || num < 5) {
+      const grams = Math.round(num * 1000);
+      return `${grams}g`;
+    }
+    const grams = Math.round(num);
+    return `${grams}g`;
+  };
+
   const toDateKey = (value) => {
     if (!value) return "";
     if (typeof value === "string" && value.length >= 10) return value.substring(0, 10);
     return new Date(value).toISOString().substring(0, 10);
   };
 
-  const getProductItems = (productName) =>
-    sectionData
+  const getProductItems = (element) => {
+    const isUniversal = element?.pouchType === 'universal' && element?.packSize;
+    const targetSize = isUniversal ? normalizePackSize(element.packSize) : '';
+    const bNorm = String(element?.buyer || info.buyer || '').trim().toLowerCase();
+
+    return sectionData
       .filter((doc) => doc.sectionMain === "Filling")
       .flatMap((doc) =>
         (doc.dataList || [])
-          .filter((item) => item.productName === productName)
+          .filter((item) => {
+            if (isUniversal) {
+              const itemSize = normalizePackSize(item.packSize);
+              const itemBuyer = String(item.buyerName || '').trim().toLowerCase();
+              const buyerMatch = !bNorm || itemBuyer === bNorm || bNorm === 'universal' || bNorm === 'general';
+              return itemSize === targetSize && buyerMatch;
+            }
+            return item.productName === element.name;
+          })
           .map((item) => ({ ...item, createdAt: doc.createdAt }))
       );
+  };
 
-  const getFilled = (productName) =>
-    getProductItems(productName).reduce((acc, item) => acc + (Number(item.pouchQuantity) || 0), 0);
+  const getFilled = (element) =>
+    getProductItems(element).reduce((acc, item) => acc + (Number(item.pouchQuantity) || 0), 0);
 
-  const getWaste = (productName) =>
-    getProductItems(productName).reduce((acc, item) => acc + (Number(item.empty) || 0), 0);
+  const getWaste = (element) =>
+    getProductItems(element).reduce((acc, item) => acc + (Number(item.empty) || 0), 0);
 
   const formatDateLabel = (dateKey) => {
     const [, m, d] = dateKey.split("-");
@@ -206,13 +268,23 @@ const months = [{month:"January"},
       return byDate[dateKey];
     };
 
+    const isUniversal = element?.pouchType === 'universal' && element?.packSize;
+    const targetSize = isUniversal ? normalizePackSize(element.packSize) : '';
+    const bNorm = String(element?.buyer || info.buyer || '').trim().toLowerCase();
+
     sectionData
       .filter((doc) => doc.sectionMain === "Filling")
       .forEach((doc) => {
         const dateKey = toDateKey(doc.createdAt);
-        const items = (doc.dataList || []).filter(
-          (item) => item.productName === element.name
-        );
+        const items = (doc.dataList || []).filter((item) => {
+          if (isUniversal) {
+            const itemSize = normalizePackSize(item.packSize);
+            const itemBuyer = String(item.buyerName || '').trim().toLowerCase();
+            const buyerMatch = !bNorm || itemBuyer === bNorm || bNorm === 'universal' || bNorm === 'general';
+            return itemSize === targetSize && buyerMatch;
+          }
+          return item.productName === element.name;
+        });
         if (!items.length) return;
 
         const row = ensure(dateKey);
@@ -375,8 +447,8 @@ const months = [{month:"January"},
                       const dateEntries = isExpanded ? getDateEntries(element) : [];
                       const prevBalance = getPrevBalance(element);
                       const stockIn = getStockIn(element);
-                      const filled = getFilled(element.name);
-                      const waste = getWaste(element.name);
+                      const filled = getFilled(element);
+                      const waste = getWaste(element);
                       const currentBalance = prevBalance + stockIn - filled - waste;
 
                       return (
@@ -388,8 +460,17 @@ const months = [{month:"January"},
                             }}
                           >
                             <TableCell className="font-mono text-xs text-zinc-500 py-3.5">{i + 1}</TableCell>
-                            <TableCell className="font-semibold text-white py-3.5 flex items-center gap-2">
+                            <TableCell className="font-semibold text-white py-3.5 flex items-center gap-2 flex-wrap">
                               <span>{element.name}</span>
+                              {element.pouchType === 'universal' ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                                  🌐 Universal ({element.packSize || 'Shared'})
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-white/5 text-zinc-400 border border-white/10">
+                                  🔒 Exclusive
+                                </span>
+                              )}
                               <span className="text-[12px] text-zinc-500 font-mono">
                                 {isExpanded ? "▲" : "▼"}
                               </span>
@@ -412,7 +493,7 @@ const months = [{month:"January"},
                                     Manage
                                   </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-44 p-2 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white" align="end">
+                                <PopoverContent className="w-48 p-2 bg-[#0d0d0d] border border-white/15 rounded-2xl shadow-2xl backdrop-blur-2xl text-white" align="end">
                                   <div className="flex flex-col gap-1.5 p-1">
                                     <Button
                                       variant="ghost"
@@ -427,6 +508,13 @@ const months = [{month:"January"},
                                       onClick={() => openModal("add", element)}
                                     >
                                       Add New Pouches
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      className="w-full text-center justify-center text-xs py-2.5 px-3 hover:bg-white/10 hover:text-cyan-400 rounded-xl font-medium transition-all border-t border-white/5"
+                                      onClick={() => openConfigModal(element)}
+                                    >
+                                      Configure Pouch Type
                                     </Button>
                                   </div>
                                 </PopoverContent>
@@ -582,6 +670,105 @@ const months = [{month:"January"},
                     className="px-6 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-primary/20"
                   >
                     {modalMode === "add" ? "Add Stock" : "Save Changes"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Configuration Modal (Exclusive vs Universal) */}
+          {configModal.isOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e0e] border border-white/10 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative space-y-6">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="text-start">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                      <h3 className="text-lg font-bold text-white tracking-tight">
+                        Packaging &amp; Pouch Type
+                      </h3>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1 font-mono">
+                      {configModal.product?.name} ({configModal.product?.buyer})
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setConfigModal({ isOpen: false, product: null, pouchType: 'exclusive', packSize: '' })}
+                    className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white flex items-center justify-center transition-all text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-5 text-start">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                      Pouch Classification
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setConfigModal((p) => ({ ...p, pouchType: 'exclusive' }))}
+                        className={`p-3.5 rounded-2xl border text-xs font-semibold text-left transition-all ${
+                          configModal.pouchType === 'exclusive'
+                            ? 'bg-primary/20 border-primary text-white shadow-lg shadow-primary/10'
+                            : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="font-bold text-sm mb-1 text-white">Exclusive Pouch</div>
+                        <div className="text-[11px] text-zinc-400 leading-relaxed font-normal">
+                          Dedicated packaging tied strictly to this product. Deducted by buyer + product name.
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setConfigModal((p) => ({ ...p, pouchType: 'universal' }))}
+                        className={`p-3.5 rounded-2xl border text-xs font-semibold text-left transition-all ${
+                          configModal.pouchType === 'universal'
+                            ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/10'
+                            : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="font-bold text-sm mb-1 text-white">Universal Pouch</div>
+                        <div className="text-[11px] text-zinc-400 leading-relaxed font-normal">
+                          Fixed shared packaging (e.g. 140g). Shared across products; deducted by pack size.
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                      Universal Pack Size / Specification
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="e.g. 140g or 250g"
+                      value={configModal.packSize}
+                      onChange={(e) => setConfigModal((p) => ({ ...p, packSize: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/10 text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-400 text-sm font-mono transition-all"
+                    />
+                    <p className="text-[11px] text-zinc-500 mt-1.5 font-mono">
+                      All products with the same pack size will share common inward supply and filling deductions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                  <button
+                    type="button"
+                    className="px-5 py-2.5 rounded-xl border border-white/10 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-semibold transition-all"
+                    onClick={() => setConfigModal({ isOpen: false, product: null, pouchType: 'exclusive', packSize: '' })}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSavePouchConfig}
+                    className="px-6 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black text-xs font-bold transition-all shadow-lg shadow-cyan-500/20"
+                  >
+                    Save Configuration
                   </button>
                 </div>
               </div>

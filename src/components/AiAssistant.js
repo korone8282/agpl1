@@ -169,7 +169,7 @@ export const AiAssistant = ({ isOpen, onClose }) => {
     {
       role: 'assistant',
       content:
-        '👋 **Hello! I am your AGPL Factory Copilot.**\n\nI have live, real-time access to your databases across:\n- 📋 **Production Orders & Daily Plans**\n- 🍲 **Kitchen Cooking Yields & Filling Records**\n- 📦 **Pouch Stock Ledgers & Balances**\n- 🌾 **Raw Material Inventory & Shortages**\n- 🚢 **Export Container Manifests**\n\nI am dynamically learning from your instructions. Ask me anything or give me a correction!',
+        '👋 **Hello! I am your AGPL Factory Copilot.**\n\nI have live, real-time access to your databases (with **4-decimal precision**) across:\n- 🍲 **Kitchen Issue Calculator (By Yield & By Batch)**\n- 📦 **PO Pouch Tracker (Progressive Balances, Universal & Exclusive Pools)**\n- 🥫 **Raw Material Unit Variants (Tins/Cans ↔ Kg Conversions)**\n- 📋 **Production Orders, Cooking Yields & Filling Logs**\n- 🚢 **Export Container Manifests**\n\nI dynamically learn from your instructions. Ask me anything or give me a calculation!',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -351,10 +351,10 @@ export const AiAssistant = ({ isOpen, onClose }) => {
           <Sparkles className="w-3 h-3 text-primary" /> Suggestions:
         </span>
         {(suggestions.length > 0 ? suggestions : [
+          "Show PO Pouch Tracker & progressive pouch balance",
+          "Show raw materials with unit variants (tins / kg)",
           "What's the production plan for tomorrow?",
-          "Show low stock raw materials",
-          "Status of export container manifests",
-          "What did we produce today?"
+          "Show Universal vs Exclusive pouch stock"
         ]).map((prompt, i) => (
           <button
             key={i}

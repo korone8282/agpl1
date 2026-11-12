@@ -102,12 +102,12 @@ const BuyerProducts = () => {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
-                <span className="text-xs text-zinc-400 font-mono uppercase">Buyer:</span>
+            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl w-full sm:w-auto">
+                <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">Buyer:</span>
                 <select
                   name="buyer"
-                  className="bg-transparent text-white text-xs font-medium focus:outline-none cursor-pointer"
+                  className="bg-transparent text-white text-xs font-medium focus:outline-none cursor-pointer flex-1 sm:flex-initial min-w-0"
                   onChange={(e) => inputHandler(e)}
                   value={info.buyer}
                 >
@@ -123,30 +123,30 @@ const BuyerProducts = () => {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
-                <span className="text-xs text-zinc-400 font-mono uppercase">From:</span>
+              <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl min-w-[140px]">
+                <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">From:</span>
                 <Input
                   type="date"
                   name="start"
                   onChange={(e) => inputHandler(e)}
-                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
                 />
               </div>
 
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
-                <span className="text-xs text-zinc-400 font-mono uppercase">To:</span>
+              <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl min-w-[140px]">
+                <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">To:</span>
                 <Input
                   type="date"
                   name="end"
                   onChange={(e) => inputHandler(e)}
-                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                  className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
                 />
               </div>
 
               <button
                 type="button"
                 onClick={getData}
-                className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer flex items-center gap-2"
+                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer flex items-center gap-2"
               >
                 <Search className="w-3.5 h-3.5" />
                 Query Performance

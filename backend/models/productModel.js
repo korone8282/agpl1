@@ -9,6 +9,19 @@ const productSchema = new mongoose.Schema({
         type: String,
         required : true,
     },
+    pouchType: {
+        type: String,
+        enum: ['exclusive', 'universal'],
+        default: 'exclusive'
+    },
+    packSize: {
+        type: String,
+        default: ''
+    },
+    universalPouchName: {
+        type: String,
+        default: ''
+    },
     pouches:[{
         month:{
             type: String,

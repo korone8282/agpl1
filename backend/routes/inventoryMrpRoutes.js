@@ -37,6 +37,8 @@ const {
     getBuyerOrders,
     updateBuyerOrder,
     deleteBuyerOrder,
+    syncPouchTracker,
+    exportPouchTrackerExcel,
     getMaterialOrders,
     createMaterialOrderBatch,
     updateMaterialOrderBatch,
@@ -90,7 +92,10 @@ router.route('/production-orders/:id')
     .put(updateProductionOrder)
     .delete(deleteProductionOrder);
 
-// Complete Master Buyer Orders
+// Complete Master Buyer Orders & Pouch Tracker
+router.put('/buyer-orders/sync-pouch-tracker', syncPouchTracker);
+router.post('/buyer-orders/export-pouch-tracker', exportPouchTrackerExcel);
+
 router.route('/buyer-orders')
     .get(getBuyerOrders)
     .post(createBuyerOrder);

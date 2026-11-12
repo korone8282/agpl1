@@ -9,6 +9,7 @@ const Container = require('../models/containerModel');
 const MaterialIssue = require('../models/materialIssueModel');
 const AiMemory = require('../models/aiMemoryModel');
 const KitchenVariance = require('../models/kitchenVarianceModel');
+const UniversalPouch = require('../models/universalPouchModel');
 
 const stopWords = new Set([
   'raw', 'material', 'materials', 'stock', 'pouch', 'pouches', 'plan', 'plans', 'order', 'orders',
@@ -229,8 +230,8 @@ function parseTimeframe(text) {
   return { label: 'Past 30 Days', start: defaultStart, end: now, hasExplicitTimeframe: false };
 }
 
-// Number and quantity formatting engine
-function formatNum(value, maxDecimals = 3) {
+// Number and quantity formatting engine (supports up to 4 decimals by default)
+function formatNum(value, maxDecimals = 4) {
   const num = Number(value);
   if (isNaN(num)) return '0';
   if (Number.isInteger(num)) return num.toLocaleString();
@@ -247,9 +248,48 @@ function formatPouch(value) {
   return num.toLocaleString();
 }
 
+function isNonStdUnit(unit) {
+  if (!unit) return false;
+  const u = String(unit).trim().toLowerCase();
+  if (!u) return false;
+  return !['kg', 'kgs', 'g', 'gm', 'gms', 'l', 'ltr', 'ml'].includes(u);
+}
+
+function getRmVariants(rm) {
+  if (!rm) return [];
+  const arr = Array.isArray(rm.unitWeightVariants)
+    ? rm.unitWeightVariants.map(Number).filter(n => !isNaN(n) && n > 0)
+    : [];
+  if (arr.length === 0 && rm.unitWeightKg && Number(rm.unitWeightKg) > 0) {
+    arr.push(Number(rm.unitWeightKg));
+  }
+  return arr;
+}
+
+function normalizePackSizeKg(val) {
+  const num = Number(val) || 0;
+  if (num <= 0) return 0;
+  return num > 10 ? parseFloat((num / 1000).toFixed(4)) : parseFloat(num.toFixed(4));
+}
+
+function getRecipeStandardYieldKg(rec) {
+  if (!rec) return 100;
+  if (Number(rec.batchCookedWeightKg) > 0) return Number(rec.batchCookedWeightKg);
+  if (Number(rec.cookedBatchWeight) > 0) return Number(rec.cookedBatchWeight);
+  if (Array.isArray(rec.ingredients) && rec.ingredients.length > 0) {
+    const sumKg = rec.ingredients.reduce((acc, ing) => {
+      const u = String(ing.unit || 'kg').trim().toLowerCase();
+      const mult = u === 'g' || u === 'gm' || u === 'ml' ? 0.001 : 1;
+      return acc + (Number(ing.edibleQuantity) || 0) * mult;
+    }, 0);
+    if (sumKg > 0) return parseFloat(sumKg.toFixed(4));
+  }
+  return 100;
+}
+
 // Extract active user preferences and formatting rules from memory
 function extractLearnedPreferences(activeRules = []) {
-  let decimalPlaces = 3; // Default 3 decimals for batches/weights
+  let decimalPlaces = 4; // Default 4 decimals for BOM, recipes, batches & weights
   let varianceThreshold = 8.0;
   let maxPouchPerShift = 25000;
   let maxYieldKgPerBatch = 800;
@@ -591,15 +631,25 @@ async function checkProductionOrderFeasibility(orderQuery, activeRules = []) {
         }
 
         const currentStock = rmDoc ? Number(rmDoc.currentStock) || 0 : 0;
-        const rmShortage = Math.max(0, grossNeeded - currentStock);
+        const baseUnit = rmDoc?.baseUnit || ing.unit || 'kg';
+        const variants = getRmVariants(rmDoc);
+        const isNonStd = isNonStdUnit(baseUnit) && variants.length > 0;
+        const primaryVariantKg = isNonStd ? variants[0] : 0;
+        const currentStockKg = isNonStd ? parseFloat((currentStock * primaryVariantKg).toFixed(4)) : currentStock;
+        const rmShortage = Math.max(0, grossNeeded - currentStockKg);
         if (rmShortage > 0) hasShortage = true;
 
         const ingEval = {
           materialName: matName,
-          grossNeeded: parseFloat(grossNeeded.toFixed(2)),
-          unit: ing.unit || rmDoc?.baseUnit || 'kg',
+          grossNeeded: parseFloat(grossNeeded.toFixed(4)),
+          unit: 'kg',
+          stockUnit: baseUnit,
+          isNonStd,
+          variants,
+          primaryVariantKg,
           currentStock,
-          shortage: parseFloat(rmShortage.toFixed(2)),
+          currentStockKg,
+          shortage: parseFloat(rmShortage.toFixed(4)),
           isSufficient: rmShortage === 0,
           leadTimeDays: rmDoc?.leadTimeDays || 1,
           preferredSupplier: rmDoc?.preferredSupplier || 'Local Vendor',
@@ -611,8 +661,8 @@ async function checkProductionOrderFeasibility(orderQuery, activeRules = []) {
           rawMaterialRequirements.set(matName, { ...ingEval });
         } else {
           const existing = rawMaterialRequirements.get(matName);
-          existing.grossNeeded = parseFloat((existing.grossNeeded + ingEval.grossNeeded).toFixed(2));
-          existing.shortage = parseFloat(Math.max(0, existing.grossNeeded - existing.currentStock).toFixed(2));
+          existing.grossNeeded = parseFloat((existing.grossNeeded + ingEval.grossNeeded).toFixed(4));
+          existing.shortage = parseFloat(Math.max(0, existing.grossNeeded - existing.currentStockKg).toFixed(4));
           if (existing.shortage > 0) existing.isSufficient = false;
         }
       }
@@ -621,7 +671,7 @@ async function checkProductionOrderFeasibility(orderQuery, activeRules = []) {
     itemsEvaluation.push({
       productName: pName,
       targetPouches: targetP,
-      batches: parseFloat(batches.toFixed(2)),
+      batches: parseFloat(batches.toFixed(4)),
       pouchAvailable,
       pouchShortage,
       pouchSufficient: pouchShortage === 0,
@@ -731,15 +781,25 @@ async function checkBuyerOrderAdequacy(orderQuery, activeRules = []) {
         }
 
         const currentStock = rmDoc ? Number(rmDoc.currentStock) || 0 : 0;
-        const rmShortage = Math.max(0, grossNeeded - currentStock);
+        const baseUnit = rmDoc?.baseUnit || ing.unit || 'kg';
+        const variants = getRmVariants(rmDoc);
+        const isNonStd = isNonStdUnit(baseUnit) && variants.length > 0;
+        const primaryVariantKg = isNonStd ? variants[0] : 0;
+        const currentStockKg = isNonStd ? parseFloat((currentStock * primaryVariantKg).toFixed(4)) : currentStock;
+        const rmShortage = Math.max(0, grossNeeded - currentStockKg);
         if (rmShortage > 0) hasShortage = true;
 
         const ingEval = {
           materialName: matName,
-          grossNeeded: parseFloat(grossNeeded.toFixed(2)),
-          unit: ing.unit || rmDoc?.baseUnit || 'kg',
+          grossNeeded: parseFloat(grossNeeded.toFixed(4)),
+          unit: 'kg',
+          stockUnit: baseUnit,
+          isNonStd,
+          variants,
+          primaryVariantKg,
           currentStock,
-          shortage: parseFloat(rmShortage.toFixed(2)),
+          currentStockKg,
+          shortage: parseFloat(rmShortage.toFixed(4)),
           isSufficient: rmShortage === 0,
           leadTimeDays: rmDoc?.leadTimeDays || 1,
           preferredSupplier: rmDoc?.preferredSupplier || 'Local Vendor'
@@ -750,8 +810,8 @@ async function checkBuyerOrderAdequacy(orderQuery, activeRules = []) {
           aggregateMaterials.set(matName, { ...ingEval });
         } else {
           const existing = aggregateMaterials.get(matName);
-          existing.grossNeeded = parseFloat((existing.grossNeeded + ingEval.grossNeeded).toFixed(2));
-          existing.shortage = parseFloat(Math.max(0, existing.grossNeeded - existing.currentStock).toFixed(2));
+          existing.grossNeeded = parseFloat((existing.grossNeeded + ingEval.grossNeeded).toFixed(4));
+          existing.shortage = parseFloat(Math.max(0, existing.grossNeeded - existing.currentStockKg).toFixed(4));
           if (existing.shortage > 0) existing.isSufficient = false;
         }
       }
@@ -764,7 +824,7 @@ async function checkBuyerOrderAdequacy(orderQuery, activeRules = []) {
       pouchAvailable,
       pouchShortage,
       pouchSufficient: pouchShortage === 0,
-      batchesNeeded: parseFloat(batchesNeeded.toFixed(2)),
+      batchesNeeded: parseFloat(batchesNeeded.toFixed(4)),
       recipeFound: Boolean(recipeDoc),
       ingredients: ingredientsList
     });
@@ -787,6 +847,265 @@ async function checkBuyerOrderAdequacy(orderQuery, activeRules = []) {
   };
 }
 
+// 4. KITCHEN ISSUE / RECIPE CALCULATOR BY YIELD OR BY BATCH (with 4-decimal precision & non-standard unit variants)
+async function calculateRecipeByYieldOrBatch(query, allProducts, decimalPlaces = 4) {
+  const qLower = query.toLowerCase();
+  const allRecipes = await Recipe.find({});
+  const allMaterials = await RawMaterial.find({});
+
+  // Match recipe by product name or buyer
+  let matchedRecipe = null;
+  const matchedProd = findBestProductMatch(qLower, allProducts);
+  if (matchedProd) {
+    matchedRecipe =
+      allRecipes.find(
+        r =>
+          r.productName.toLowerCase() === matchedProd.name.toLowerCase() &&
+          (!matchedProd.buyer || (r.buyerName || '').toLowerCase() === matchedProd.buyer.toLowerCase())
+      ) ||
+      allRecipes.find(r => r.productName.toLowerCase().includes(matchedProd.name.toLowerCase()));
+  }
+
+  if (!matchedRecipe) {
+    matchedRecipe = allRecipes.find(r => qLower.includes(r.productName.toLowerCase()));
+  }
+
+  if (!matchedRecipe) {
+    const tokens = qLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length >= 3 && !stopWords.has(t) && !/^\d+$/.test(t));
+    let bestScore = 0;
+    for (const r of allRecipes) {
+      const rTokens = (r.productName || '').toLowerCase().split(/\s+/);
+      let score = 0;
+      tokens.forEach(t => {
+        if (rTokens.some(rt => rt.includes(t) || t.includes(rt))) score += 2;
+      });
+      if (score > bestScore) {
+        bestScore = score;
+        matchedRecipe = r;
+      }
+    }
+  }
+
+  if (!matchedRecipe) {
+    return {
+      found: false,
+      sampleRecipes: allRecipes.slice(0, 6).map(r => ({
+        productName: r.productName,
+        buyerName: r.buyerName || 'General',
+        recipeYieldKg: getRecipeStandardYieldKg(r),
+        ingredientCount: r.ingredients?.length || 0
+      }))
+    };
+  }
+
+  const recipeYieldKg = getRecipeStandardYieldKg(matchedRecipe);
+
+  // Detect if user asked for calculation by yield (e.g. "for 150 kg yield", "yield 120 kg", "given yield 85", "for 200 kg")
+  // or by batch (e.g. "for 2.5 batches", "3 batches", "0.5 batch")
+  let calcBasis = 'BATCH';
+  let batches = 1;
+  let givenYieldKg = recipeYieldKg;
+
+  const yieldMatch =
+    qLower.match(/(?:given\s*yield|target\s*yield|yield\s*(?:of|is|=)?)\s*(\d+(?:\.\d+)?)\s*(?:kg|kgs)?/i) ||
+    qLower.match(/(\d+(?:\.\d+)?)\s*(?:kg|kgs)\s*(?:yield|cooked|batch|output)?/i);
+  const batchMatch = qLower.match(/(\d+(?:\.\d+)?)\s*(?:batch|batches|\bb\b)/i);
+
+  if (batchMatch && (!qLower.includes('yield') || qLower.indexOf('batch') < qLower.indexOf('yield'))) {
+    calcBasis = 'BATCH';
+    batches = parseFloat(batchMatch[1]) || 1;
+    givenYieldKg = parseFloat((recipeYieldKg * batches).toFixed(4));
+  } else if (yieldMatch || qLower.includes('by yield')) {
+    calcBasis = 'YIELD';
+    givenYieldKg = yieldMatch ? parseFloat(yieldMatch[1]) : recipeYieldKg;
+    batches = recipeYieldKg > 0 ? parseFloat((givenYieldKg / recipeYieldKg).toFixed(4)) : 1;
+  }
+
+  const multiplier = calcBasis === 'YIELD' ? (recipeYieldKg > 0 ? givenYieldKg / recipeYieldKg : 1) : batches;
+
+  const calculatedIngredients = (matchedRecipe.ingredients || []).map((ing, idx) => {
+    const u = String(ing.unit || 'kg').trim().toLowerCase();
+    const unitMult = u === 'g' || u === 'gm' || u === 'ml' ? 0.001 : 1;
+    const baseEdibleKg = Number(ing.edibleQuantity || 0) * unitMult;
+    const lossFactor = Number(ing.lossFactor) || 1.0;
+    const baseGrossKg = baseEdibleKg * lossFactor;
+
+    // Formula:
+    // By Yield: Ingredient A = (Qty of A / Recipe Yield) * Given Yield = Qty of A * (Given Yield / Recipe Yield)
+    // By Batch: Ingredient A = Qty of A * Batches
+    const edibleKg =
+      calcBasis === 'YIELD'
+        ? parseFloat(((baseEdibleKg / recipeYieldKg) * givenYieldKg).toFixed(4))
+        : parseFloat((baseEdibleKg * batches).toFixed(4));
+    const grossKg =
+      calcBasis === 'YIELD'
+        ? parseFloat(((baseGrossKg / recipeYieldKg) * givenYieldKg).toFixed(4))
+        : parseFloat((baseGrossKg * batches).toFixed(4));
+
+    const rmDoc = allMaterials.find(
+      rm =>
+        (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
+        rm.name.trim().toLowerCase() === (ing.materialName || '').trim().toLowerCase()
+    );
+
+    const stockUnit = rmDoc ? rmDoc.baseUnit : 'kg';
+    const availStockUnits = rmDoc ? Number(rmDoc.currentStock) || 0 : 0;
+    const variants = getRmVariants(rmDoc);
+    const isNonStd = isNonStdUnit(stockUnit) && variants.length > 0;
+    const primaryVariantKg = isNonStd ? variants[0] : 0;
+    const availStockKg = isNonStd ? parseFloat((availStockUnits * primaryVariantKg).toFixed(4)) : availStockUnits;
+    const variantConversions = isNonStd
+      ? variants.map(v => ({
+          variantKg: v,
+          unitsNeeded: parseFloat((grossKg / v).toFixed(4)),
+          wholeUnitsNeeded: Math.ceil(grossKg / v)
+        }))
+      : [];
+
+    const deficitKg = Math.max(0, parseFloat((grossKg - availStockKg).toFixed(4)));
+
+    return {
+      index: idx + 1,
+      materialName: ing.materialName,
+      baseEdibleKg: parseFloat(baseEdibleKg.toFixed(4)),
+      lossFactor: parseFloat(lossFactor.toFixed(4)),
+      baseGrossKg: parseFloat(baseGrossKg.toFixed(4)),
+      edibleKg,
+      grossKg,
+      stockUnit,
+      isNonStd,
+      variants,
+      primaryVariantKg,
+      availStockUnits,
+      availStockKg,
+      variantConversions,
+      deficitKg,
+      isSufficient: deficitKg === 0
+    };
+  });
+
+  const totalEdibleKg = parseFloat(calculatedIngredients.reduce((s, i) => s + i.edibleKg, 0).toFixed(4));
+  const totalGrossKg = parseFloat(calculatedIngredients.reduce((s, i) => s + i.grossKg, 0).toFixed(4));
+
+  return {
+    found: true,
+    recipe: {
+      productName: matchedRecipe.productName,
+      buyerName: matchedRecipe.buyerName || 'General',
+      recipeYieldKg,
+      nominalBatchYieldPouches: matchedRecipe.nominalBatchYieldPouches || 250,
+      packSizes: matchedRecipe.packSizes || []
+    },
+    calcBasis,
+    batches,
+    givenYieldKg,
+    multiplier: parseFloat(multiplier.toFixed(4)),
+    totalEdibleKg,
+    totalGrossKg,
+    calculatedIngredients
+  };
+}
+
+// 5. PO POUCH TRACKER & PROGRESSIVE POUCH ALLOCATION (Universal vs Exclusive Pouches)
+async function calculatePoPouchTrackerSummary(query, allProducts) {
+  const currentMonth = new Date().getMonth() + 1;
+  const [buyerOrders, universalPouches, fullProducts] = await Promise.all([
+    BuyerOrder.find({}).sort({ orderDate: 1, createdAt: 1 }),
+    UniversalPouch.find({}),
+    Product.find({})
+  ]);
+
+  const getProductStock = (buyerName, productName) => {
+    const bNorm = (buyerName || '').trim().toLowerCase();
+    const pNorm = (productName || '').trim().toLowerCase();
+    const matched =
+      fullProducts.find(
+        p => (p.name || '').trim().toLowerCase() === pNorm && (p.buyer || '').trim().toLowerCase() === bNorm
+      ) || fullProducts.find(p => (p.name || '').trim().toLowerCase() === pNorm);
+    if (!matched || !Array.isArray(matched.pouches)) return 0;
+    const mEntry = matched.pouches[currentMonth - 1];
+    return mEntry ? Number(mEntry.remain) || 0 : 0;
+  };
+
+  const getUniversalStock = (packSizeVal) => {
+    const psKg = normalizePackSizeKg(packSizeVal);
+    if (psKg <= 0) return 0;
+    const pool = universalPouches.find(u => Math.abs((Number(u.packSizeKg) || 0) - psKg) < 0.0005);
+    if (!pool || !Array.isArray(pool.pouches)) return 0;
+    const mEntry = pool.pouches[currentMonth - 1];
+    return mEntry ? Number(mEntry.remain) || 0 : 0;
+  };
+
+  const resolvePouchMode = (buyerName, productName, itemPouchMode) => {
+    if (itemPouchMode === 'UNIVERSAL' || itemPouchMode === 'EXCLUSIVE') return itemPouchMode;
+    const bNorm = (buyerName || '').trim().toLowerCase();
+    const pNorm = (productName || '').trim().toLowerCase();
+    const matched =
+      fullProducts.find(
+        p => (p.name || '').trim().toLowerCase() === pNorm && (p.buyer || '').trim().toLowerCase() === bNorm
+      ) || fullProducts.find(p => (p.name || '').trim().toLowerCase() === pNorm);
+    return matched?.pouchType === 'UNIVERSAL' ? 'UNIVERSAL' : 'EXCLUSIVE';
+  };
+
+  const runningConsumedByPool = new Map();
+  const trackerRows = [];
+
+  buyerOrders.forEach(order => {
+    (order.items || []).forEach((item, idx) => {
+      const buyer = order.buyerName || 'General';
+      const prod = item.productName || 'Unknown';
+      const psKg = normalizePackSizeKg(item.packSize || 0.25);
+      const mode = resolvePouchMode(buyer, prod, item.pouchMode);
+      const poolKey =
+        mode === 'UNIVERSAL'
+          ? `UNIV:::${psKg}`
+          : `EXCL:::${buyer.trim().toLowerCase()}|||${prod.trim().toLowerCase()}`;
+
+      const initialPoolStock =
+        mode === 'UNIVERSAL' ? getUniversalStock(psKg) : getProductStock(buyer, prod);
+      const consumedBefore = runningConsumedByPool.get(poolKey) || 0;
+      const openingPouchStock = initialPoolStock - consumedBefore;
+      const requiredPouches = Number(item.targetPouches) || 0;
+      const dueAfter = openingPouchStock - requiredPouches;
+      runningConsumedByPool.set(poolKey, consumedBefore + requiredPouches);
+
+      trackerRows.push({
+        orderNumber: order.orderNumber,
+        buyerName: buyer,
+        productName: prod,
+        packSizeKg: psKg,
+        pouchMode: mode,
+        poolKey,
+        initialPoolStock,
+        openingPouchStock,
+        requiredPouches,
+        dueAfter,
+        pouchOrderLotSize: Number(item.pouchOrderLotSize) || 0,
+        status: dueAfter >= 0 ? 'POUCH AVAILABLE' : 'ORDER POUCHES'
+      });
+    });
+  });
+
+  const universalPoolsSummary = universalPouches.map(u => {
+    const mEntry = Array.isArray(u.pouches) ? u.pouches[currentMonth - 1] : null;
+    return {
+      packSizeKg: u.packSizeKg,
+      label: u.label || `${Math.round(u.packSizeKg * 1000)}g Universal Pouch`,
+      stockIn: Number(mEntry?.stock) || 0,
+      filled: Number(mEntry?.filled) || 0,
+      wastage: Number(mEntry?.wastage) || 0,
+      remain: Number(mEntry?.remain) || 0
+    };
+  });
+
+  return {
+    currentMonth,
+    totalTrackerRows: trackerRows.length,
+    trackerRows,
+    universalPoolsSummary
+  };
+}
+
 // Generate context-aware, interaction-based dynamic suggestions
 async function generateContextualSuggestions(lastIntent, lastMatchedProduct, previousQuery) {
   try {
@@ -799,22 +1118,26 @@ async function generateContextualSuggestions(lastIntent, lastMatchedProduct, pre
     // Contextual based on last matched product
     if (lastMatchedProduct) {
       const pName = lastMatchedProduct.name;
+      suggestions.push(`Calculate kitchen issue for 150 kg yield of ${pName}`);
       suggestions.push(`How many pouches remaining for ${pName}?`);
-      suggestions.push(`Show recipe BOM & pack sizes for ${pName}`);
-      suggestions.push(`How much ${pName} was cooked this month?`);
+      suggestions.push(`Show recipe BOM & 4-decimal quantities for ${pName}`);
     }
 
     // Dynamic suggestions based on specialized intents
     if (lastIntent === 'ORDER_FEASIBILITY') {
+      suggestions.push(`Show PO Pouch Tracker & progressive pouch balance`);
       suggestions.push(`In master buyer order - 15274 are there enough material for all of their order?`);
-      suggestions.push(`Audit factory data for typos, pack sizes & variance`);
-      suggestions.push(`Show low stock raw materials`);
-    } else if (lastIntent === 'BUYER_ORDER_CHECK') {
+      suggestions.push(`Show Universal vs Exclusive pouch stock`);
+    } else if (lastIntent === 'BUYER_ORDER_CHECK' || lastIntent === 'PO_POUCH_TRACKER') {
+      suggestions.push(`Show PO Pouch Tracker & progressive pouch balance`);
+      suggestions.push(`Show Universal vs Exclusive pouch stock`);
       suggestions.push(`For PO-55863 are there enough pouches and raw material?`);
+    } else if (lastIntent === 'KITCHEN_ISSUE_CALC' || lastIntent === 'RECIPES') {
+      suggestions.push(`Show PO Pouch Tracker & progressive pouch balance`);
+      suggestions.push(`Show raw materials with unit variants (tins / kg)`);
       suggestions.push(`Audit factory data for typos, pack sizes & variance`);
-      suggestions.push(`What is the production plan for tomorrow?`);
     } else if (lastIntent === 'DATA_AUDIT') {
-      suggestions.push(`For PO-55863 are there enough pouches and raw material?`);
+      suggestions.push(`Show PO Pouch Tracker & progressive pouch balance`);
       suggestions.push(`In master buyer order - 15274 are there enough material for all of their order?`);
       suggestions.push(`Show low stock raw materials`);
     }
@@ -1880,7 +2203,133 @@ exports.chatWithAi = async (req, res) => {
       }
     }
 
-    // 4. RAW MATERIAL INVENTORY & SHORTAGE ALERTS
+    // 3C. KITCHEN STORE ISSUE / RECIPE CALCULATOR BY YIELD OR BY BATCH (Up to 4 Decimals + Unit Variants)
+    else if (
+      qLower.includes('by yield') ||
+      qLower.includes('by batch') ||
+      qLower.includes('given yield') ||
+      qLower.includes('recipe yield') ||
+      qLower.includes('kitchen issue') ||
+      qLower.includes('store issue') ||
+      ((qLower.includes('calculate') || qLower.includes('issue') || qLower.includes('recipe') || qLower.includes('bom') || qLower.includes('ingredient')) &&
+        (/\d+(\.\d+)?\s*(?:kg|kgs|batch|batches)/i.test(qLower) || qLower.includes('yield')))
+    ) {
+      intent = 'KITCHEN_ISSUE_CALC';
+      const calcRes = await calculateRecipeByYieldOrBatch(q, allProducts, prefs.decimalPlaces);
+      contextData = { query: q, calcRes };
+
+      const geminiAns = await callGeminiIfAvailable(q, contextData, activeRules);
+      if (geminiAns) {
+        const suggestions = await generateContextualSuggestions(intent, matchedProduct, q);
+        return res.status(200).json({ success: true, answer: geminiAns, intent, context: contextData, suggestions });
+      }
+
+      if (!calcRes.found) {
+        answer = `### 🍲 Kitchen Store Issue & Recipe Calculator (By Yield / By Batch)\n\n`;
+        answer += `Please specify a product recipe to calculate ingredients (with up to **4 decimal places**).\n\n`;
+        if (calcRes.sampleRecipes && calcRes.sampleRecipes.length > 0) {
+          answer += `**Available Recipes in Database:**\n\n`;
+          answer += `| Product Name | Buyer | Standard Recipe Yield (kg) | Ingredients |\n`;
+          answer += `| :--- | :--- | :---: | :---: |\n`;
+          calcRes.sampleRecipes.forEach(r => {
+            answer += `| **${r.productName}** | ${r.buyerName} | **${formatNum(r.recipeYieldKg, 4)} kg** | ${r.ingredientCount} items |\n`;
+          });
+          const firstProd = calcRes.sampleRecipes[0].productName;
+          answer += `\n💡 *Try asking:*\n`;
+          answer += `- *"Calculate kitchen issue for 150 kg yield of ${firstProd}"*\n`;
+          answer += `- *"Calculate recipe for 2.5 batches of ${firstProd}"*`;
+        }
+      } else {
+        const { recipe, calcBasis, batches, givenYieldKg, multiplier, totalEdibleKg, totalGrossKg, calculatedIngredients } = calcRes;
+        answer = `### 🍲 Kitchen Store Issue Calculation: **${recipe.productName}** (${recipe.buyerName})\n\n`;
+        if (calcBasis === 'YIELD') {
+          answer += `- **Calculation Mode:** \`BY YIELD\` — $\\text{Ingredient A} = \\text{Qty of A} \\times \\left(\\frac{\\text{Given Yield}}{\\text{Recipe Yield}}\\right)$\n`;
+          answer += `- **Recipe Standard Yield:** **${formatNum(recipe.recipeYieldKg, 4)} kg** | **Given / Target Yield:** **${formatNum(givenYieldKg, 4)} kg**\n`;
+          answer += `- **Effective Yield Multiplier:** **${formatNum(multiplier, 4)}x** *(Equivalent to ${formatNum(batches, 4)} batches)*\n\n`;
+        } else {
+          answer += `- **Calculation Mode:** \`BY BATCH\` — $\\text{Ingredient A} = \\text{Qty of A} \\times \\text{No. of Batches}$\n`;
+          answer += `- **Number of Batches:** **${formatNum(batches, 4)} batch(es)** *(Est. Cooked Yield: ${formatNum(givenYieldKg, 4)} kg @ ${formatNum(recipe.recipeYieldKg, 4)} kg/batch)*\n\n`;
+        }
+
+        answer += `| # | Ingredient Name | 1-Batch Edible (kg) | Loss Factor | Scaled Edible (kg) | **Theoretical Gross (kg)** | Available Stock (kg & Unit) | Issue Conversion / Status |\n`;
+        answer += `| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :--- |\n`;
+
+        calculatedIngredients.forEach(ing => {
+          const availStr = ing.isNonStd
+            ? `**${formatNum(ing.availStockKg, 4)} kg** (${formatNum(ing.primaryVariantKg, 4)} kg × ${formatNum(ing.availStockUnits, 4)} ${ing.stockUnit})`
+            : `**${formatNum(ing.availStockKg, 4)} ${ing.stockUnit}**`;
+
+          let convStr = ing.isSufficient ? '🟢 Sufficient' : `🔴 Deficit (-${formatNum(ing.deficitKg, 4)} kg)`;
+          if (ing.isNonStd && ing.variantConversions.length > 0) {
+            const vParts = ing.variantConversions.map(
+              vc => `${formatNum(vc.unitsNeeded, 4)} ${ing.stockUnit} (@ ${formatNum(vc.variantKg, 4)}kg)`
+            );
+            convStr = `${vParts.join(' or ')} — ${convStr}`;
+          }
+
+          answer += `| ${ing.index} | **${ing.materialName}** | ${formatNum(ing.baseEdibleKg, 4)} kg | ${formatNum(ing.lossFactor, 4)}x | ${formatNum(ing.edibleKg, 4)} kg | **${formatNum(ing.grossKg, 4)} kg** | ${availStr} | ${convStr} |\n`;
+        });
+
+        answer += `\n**📊 Totals (4-Decimal Precision):**\n`;
+        answer += `- **Total Scaled Edible Kettle Qty:** **${formatNum(totalEdibleKg, 4)} kg**\n`;
+        answer += `- **Total Theoretical Gross Warehouse Req:** **${formatNum(totalGrossKg, 4)} kg**\n`;
+        answer += `\n💡 *Ready to issue? Open **[Kitchen Store Issue](/material-issue)** and toggle between **By Batch** or **By Yield**.*`;
+      }
+    }
+
+    // 3D. PO POUCH TRACKER & PROGRESSIVE POUCH ALLOCATION (Universal vs Exclusive Pouches)
+    else if (
+      qLower.includes('pouch tracker') ||
+      qLower.includes('po pouch') ||
+      qLower.includes('progressive pouch') ||
+      qLower.includes('universal pouch') ||
+      qLower.includes('exclusive pouch') ||
+      (qLower.includes('universal') && qLower.includes('pouch'))
+    ) {
+      intent = 'PO_POUCH_TRACKER';
+      const trackerData = await calculatePoPouchTrackerSummary(q, allProducts);
+      contextData = { query: q, trackerData };
+
+      const geminiAns = await callGeminiIfAvailable(q, contextData, activeRules);
+      if (geminiAns) {
+        const suggestions = await generateContextualSuggestions(intent, matchedProduct, q);
+        return res.status(200).json({ success: true, answer: geminiAns, intent, context: contextData, suggestions });
+      }
+
+      answer = `### 📦 PO Pouch Tracker & Progressive Pouch Allocation (Month ${trackerData.currentMonth})\n\n`;
+      answer += `Tracks **Exclusive Pouches** (by Buyer + Product) and **Universal Shared Pouches** (by Pack Size across products) with progressive running balances across repeated Master Buyer Orders.\n\n`;
+
+      if (trackerData.universalPoolsSummary.length > 0) {
+        answer += `#### 🌐 1. Universal Shared Pouch Pools (Deducted by Pack Size)\n\n`;
+        answer += `| Pack Size | Pool Label | Pouches (IN) | Filled | Wastage | **Current Available Balance** |\n`;
+        answer += `| :---: | :--- | :---: | :---: | :---: | :---: |\n`;
+        trackerData.universalPoolsSummary.forEach(u => {
+          answer += `| **${u.packSizeKg} kg** (${Math.round(u.packSizeKg * 1000)}g) | ${u.label} | ${formatPouch(u.stockIn)} | ${formatPouch(u.filled)} | ${formatPouch(u.wastage)} | **${formatPouch(u.remain)} pouches** |\n`;
+        });
+        answer += `\n`;
+      }
+
+      let rows = trackerData.trackerRows;
+      if (matchedProduct) {
+        rows = rows.filter(r => r.productName.toLowerCase().includes(matchedProduct.name.toLowerCase()));
+      }
+
+      answer += `#### 📋 2. Progressive PO Pouch Allocation Across Master Buyer Orders\n\n`;
+      if (rows.length === 0) {
+        answer += `*No Master Buyer Order line items found. Add orders in **[MRP & Purchase Planner](/purchase-planner)**.*\n`;
+      } else {
+        answer += `| PO # | Buyer | Product Name | Pack Size | Pouch Type | Opening Pouch Stock | Required Pouches | **Due / Balance After PO** | Status |\n`;
+        answer += `| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n`;
+        rows.slice(0, 25).forEach(r => {
+          const dueFormatted = r.dueAfter >= 0 ? `+${formatPouch(r.dueAfter)}` : `${formatPouch(r.dueAfter)}`;
+          const badge = r.dueAfter >= 0 ? '🟢 POUCH AVAILABLE' : '🔴 ORDER POUCHES';
+          answer += `| **${r.orderNumber}** | ${r.buyerName} | **${r.productName}** | ${r.packSizeKg} kg | \`${r.pouchMode}\` | **${formatPouch(r.openingPouchStock)}** | ${formatPouch(r.requiredPouches)} | **${dueFormatted}** | ${badge} |\n`;
+        });
+      }
+      answer += `\n💡 *Manage PO Pouch Tracker in **[MRP & Purchase Planner](/purchase-planner)** or configure Universal/Exclusive pools in **[Pouch Stock Ledger](/pouch)**.*`;
+    }
+
+    // 4. RAW MATERIAL INVENTORY, UNIT VARIANTS (TINS/KG) & SHORTAGE ALERTS
     else if (
       qLower.includes('raw material') ||
       qLower.includes('raw materials') ||
@@ -1888,15 +2337,24 @@ exports.chatWithAi = async (req, res) => {
       qLower.includes('ingredient') ||
       qLower.includes('low stock') ||
       qLower.includes('shortage') ||
+      qLower.includes('variant') ||
+      qLower.includes('tin') ||
+      qLower.includes('tins') ||
       (qLower.includes('buffer') && !qLower.includes('pouch'))
     ) {
       intent = 'RAW_MATERIALS';
       const materials = await RawMaterial.find({}).sort({ currentStock: 1 });
       const lowStock = materials.filter(m => m.currentStock <= (m.minSafetyStock || 0));
+      const nonStdMaterials = materials.filter(m => isNonStdUnit(m.baseUnit));
+
+      // Check if user asked about a specific raw material (e.g., "tomato puree")
+      const matchedRm = materials.find(m => m.name && qLower.includes(m.name.toLowerCase()));
 
       contextData = {
         totalMaterials: materials.length,
         lowStockCount: lowStock.length,
+        matchedRm,
+        nonStdMaterials: nonStdMaterials.slice(0, 10),
         lowStockSample: lowStock.slice(0, 10)
       };
 
@@ -1906,17 +2364,48 @@ exports.chatWithAi = async (req, res) => {
         return res.status(200).json({ success: true, answer: geminiAns, intent, context: contextData, suggestions });
       }
 
-      answer = `### 🌾 Raw Material Inventory & Shortage Status\n\n`;
+      answer = `### 🌾 Raw Material Inventory, Unit Variants & Shortage Status\n\n`;
+      if (matchedRm) {
+        const variants = getRmVariants(matchedRm);
+        const isNonStd = isNonStdUnit(matchedRm.baseUnit) && variants.length > 0;
+        const primaryKg = isNonStd ? variants[0] : 1;
+        const stockKg = isNonStd ? parseFloat((matchedRm.currentStock * primaryKg).toFixed(4)) : matchedRm.currentStock;
+
+        answer += `#### 🔍 Specific Material Lookup: **${matchedRm.name}**\n`;
+        answer += `- **Warehouse Stock (Base Unit):** **${formatNum(matchedRm.currentStock, 4)} ${matchedRm.baseUnit}**\n`;
+        if (isNonStd) {
+          answer += `- **Available Stock in Kg:** **${formatNum(stockKg, 4)} kg** *(${formatNum(primaryKg, 4)} kg × ${formatNum(matchedRm.currentStock, 4)} ${matchedRm.baseUnit})*\n`;
+          answer += `- **Configured Weight Variants:** \`${variants.map(v => `${v} kg/${matchedRm.baseUnit}`).join(', ')}\`\n`;
+        }
+        answer += `- **Safety Buffer:** ${formatNum(matchedRm.minSafetyStock || 0, 4)} ${matchedRm.baseUnit} | **Avg Rate:** ₹${matchedRm.averagePurchaseRate || matchedRm.lastPurchaseRate || 0}\n\n`;
+      }
+
       answer += `- **Total Raw Materials Tracked:** ${materials.length}\n`;
+      answer += `- **Non-Standard Container / Variant Materials (e.g. Tins/Cans):** ${nonStdMaterials.length}\n`;
       answer += `- **Low Stock / Reorder Alerts:** **${lowStock.length}** item(s) below safety stock\n\n`;
+
+      if (nonStdMaterials.length > 0 && (qLower.includes('tin') || qLower.includes('variant') || !lowStock.length)) {
+        answer += `#### 🥫 Container / Variant Raw Materials (Stock in Units & Kg):\n\n`;
+        answer += `| Material Name | Base Unit | Weight Variants (kg/unit) | Available Units | **Available in Kg** |\n`;
+        answer += `| :--- | :---: | :---: | :---: | :---: |\n`;
+        nonStdMaterials.slice(0, 10).forEach(m => {
+          const vars = getRmVariants(m);
+          const pKg = vars[0] || 0;
+          const eqKg = pKg > 0 ? `${formatNum(m.currentStock * pKg, 4)} kg` : '—';
+          answer += `| **${m.name}** | \`${m.baseUnit}\` | ${vars.length ? vars.map(v => `${v} kg`).join(', ') : 'Not set'} | ${formatNum(m.currentStock, 4)} ${m.baseUnit} | **${eqKg}** |\n`;
+        });
+        answer += `\n`;
+      }
 
       if (lowStock.length > 0) {
         answer += `#### ⚠️ Critical / Low Stock Alert List:\n\n`;
-        answer += `| Material Name | Current Stock | Safety Buffer | Unit | Supplier | Avg Rate |\n`;
-        answer += `| :--- | :---: | :---: | :---: | :--- | :---: |\n`;
+        answer += `| Material Name | Current Stock | Safety Buffer | Unit | Variants (kg) | Supplier | Avg Rate |\n`;
+        answer += `| :--- | :---: | :---: | :---: | :---: | :--- | :---: |\n`;
 
-        lowStock.slice(0, 8).forEach(m => {
-          answer += `| **${m.name}** | **${m.currentStock}** | ${m.minSafetyStock || 0} | ${m.baseUnit} | ${m.preferredSupplier || '—'} | ₹${m.averagePurchaseRate || m.lastPurchaseRate || 0} |\n`;
+        lowStock.slice(0, 10).forEach(m => {
+          const vars = getRmVariants(m);
+          const varLabel = vars.length > 0 ? vars.map(v => `${v}kg`).join(', ') : '—';
+          answer += `| **${m.name}** | **${formatNum(m.currentStock, 4)}** | ${formatNum(m.minSafetyStock || 0, 4)} | ${m.baseUnit} | ${varLabel} | ${m.preferredSupplier || '—'} | ₹${m.averagePurchaseRate || m.lastPurchaseRate || 0} |\n`;
         });
         answer += `\n💡 *Take action in **[Purchase Planner](/purchase-planner)** or **[Raw Materials Ledger](/raw-materials)**.*`;
       } else {
@@ -1924,7 +2413,7 @@ exports.chatWithAi = async (req, res) => {
       }
     }
 
-    // 5. POUCH STOCK & REMAINING INVENTORY
+    // 5. POUCH STOCK & REMAINING INVENTORY (Exclusive & Universal Pouch Pools)
     else if (
       qLower.includes('pouch') ||
       qLower.includes('pouches') ||
@@ -1934,8 +2423,13 @@ exports.chatWithAi = async (req, res) => {
     ) {
       intent = 'POUCH_STOCK';
       const currentMonth = new Date().getMonth() + 1;
+      const universalPools = await UniversalPouch.find({});
 
       if (matchedProduct) {
+        const fullProd = await Product.findById(matchedProduct._id);
+        const pouchType = fullProd?.pouchType || 'EXCLUSIVE';
+        const defaultPsKg = normalizePackSizeKg(fullProd?.defaultPackSizeKg || 0.25);
+
         const monthPouch = matchedProduct.pouches[currentMonth - 1] || {};
         const prevPouch = currentMonth > 1 ? matchedProduct.pouches[currentMonth - 2] : null;
         const prevBal = Number(prevPouch?.remain) || 0;
@@ -1965,16 +2459,24 @@ exports.chatWithAi = async (req, res) => {
         });
 
         const calculatedBalance = prevBal + stockIn - filledMonth - wasteMonth;
+        const matchedUnivPool =
+          pouchType === 'UNIVERSAL' && defaultPsKg > 0
+            ? universalPools.find(u => Math.abs((Number(u.packSizeKg) || 0) - defaultPsKg) < 0.0005)
+            : null;
+        const univBal = matchedUnivPool?.pouches?.[currentMonth - 1]?.remain ?? null;
 
         contextData = {
           product: matchedProduct.name,
           buyer: matchedProduct.buyer,
+          pouchType,
+          defaultPackSizeKg: defaultPsKg,
           currentMonth,
           prevBal,
           stockIn,
           filledMonth,
           wasteMonth,
-          remainingBalance: calculatedBalance
+          remainingBalance: calculatedBalance,
+          universalPoolBalance: univBal
         };
 
         const geminiAns = await callGeminiIfAvailable(q, contextData, activeRules);
@@ -1984,18 +2486,33 @@ exports.chatWithAi = async (req, res) => {
         }
 
         answer = `### 📦 Pouch Inventory: **${matchedProduct.name}**\n\n`;
-        answer += `**Buyer:** \`${matchedProduct.buyer}\` | **Current Month:** Month ${currentMonth}\n\n`;
+        answer += `**Buyer:** \`${matchedProduct.buyer}\` | **Pouch Mode:** \`${pouchType}\` | **Current Month:** Month ${currentMonth}\n\n`;
         answer += `| Metric | Quantity (Pouches) |\n`;
         answer += `| :--- | :--- |\n`;
         answer += `| **Previous Month Balance** | ${prevBal.toLocaleString()} |\n`;
         answer += `| **Pouches (IN)** | **+${stockIn.toLocaleString()}** |\n`;
         answer += `| **Pouch Filled** | -${filledMonth.toLocaleString()} |\n`;
         answer += `| **Waste Pouches** | -${wasteMonth.toLocaleString()} |\n`;
-        answer += `| 🟢 **Current Available Balance** | **${calculatedBalance.toLocaleString()} pouches** |\n\n`;
-        answer += `💡 *View full shift history or add new pouches in **[Pouch Inventory Ledger](/pouch)**.*`;
+        answer += `| 🟢 **Exclusive SKU Available Balance** | **${calculatedBalance.toLocaleString()} pouches** |\n`;
+        if (univBal !== null) {
+          answer += `| 🌐 **Shared Universal Pool (${defaultPsKg} kg)** | **${Number(univBal).toLocaleString()} pouches** |\n`;
+        }
+        answer += `\n💡 *View full shift history or manage Universal & Exclusive pouches in **[Pouch Inventory Ledger](/pouch)**.*`;
       } else {
         const topProducts = allProducts.slice(0, 8);
-        answer = `### 📦 Live Pouch Balances (Top SKUs - Month ${currentMonth})\n\n`;
+        answer = `### 📦 Live Pouch Balances (Exclusive SKUs & Universal Pools - Month ${currentMonth})\n\n`;
+        if (universalPools.length > 0) {
+          answer += `#### 🌐 Shared Universal Pouch Pools (By Pack Size):\n`;
+          answer += `| Pack Size | Pool Label | Pouches (IN) | Current Available Balance |\n`;
+          answer += `| :---: | :--- | :---: | :---: |\n`;
+          universalPools.forEach(u => {
+            const m = u.pouches?.[currentMonth - 1] || {};
+            answer += `| **${u.packSizeKg} kg** (${Math.round(u.packSizeKg * 1000)}g) | ${u.label || 'Universal Pool'} | ${Number(m.stock || 0).toLocaleString()} | **${Number(m.remain || 0).toLocaleString()}** |\n`;
+          });
+          answer += `\n`;
+        }
+
+        answer += `#### 🏷️ Top Product Pouch Balances:\n`;
         answer += `| Product Name | Buyer | Pouches (IN) | Current Balance |\n`;
         answer += `| :--- | :--- | :---: | :---: |\n`;
 
@@ -2004,7 +2521,7 @@ exports.chatWithAi = async (req, res) => {
           answer += `| **${p.name}** | ${p.buyer} | ${Number(m.stock || 0).toLocaleString()} | **${Number(m.remain || 0).toLocaleString()}** |\n`;
         });
 
-        answer += `\n*Ask about a specific product like: "How many pouches remaining for Butter Garlic Rice?" or check **[Pouch Ledger](/pouch)**.*`;
+        answer += `\n*Ask about a specific product, or say **"Show PO Pouch Tracker"** to see progressive order deductions across repeated POs.*`;
       }
     }
 
@@ -2084,14 +2601,14 @@ exports.chatWithAi = async (req, res) => {
       }
 
       answer = `### 🤖 AGPL Factory Copilot\n\n`;
-      answer += `I am your self-improving factory operations assistant with live access to production databases.\n\n`;
-      answer += `You can ask questions on a whim or teach me specific instructions/corrections:\n\n`;
-      answer += `- 📋 Check plans: *"What's the production plan for tomorrow?"*\n`;
-      answer += `- 🍲 Check outputs: *"How much Butter Garlic was created in last week?"*\n`;
-      answer += `- 📦 Check balances: *"How many pouches remaining for Organic Basmati Rice?"*\n`;
-      answer += `- 🌾 Check shortages: *"Show low stock raw materials"* \n`;
-      answer += `- 🚢 Check shipments: *"Status of export container manifests"* \n`;
-      answer += `- 🧠 Teach / Correct: *"Remember that pack size for X is Y"* or *"No, calculate yield as Z"*\n`;
+      answer += `I am your self-improving factory operations assistant with live access to production databases (up to **4-decimal precision**).\n\n`;
+      answer += `You can ask questions or run live calculations anytime:\n\n`;
+      answer += `- 🍲 **Kitchen Issue by Yield / Batch**: *"Calculate kitchen issue for 150 kg yield of Rajma Masala"* or *"for 2.5 batches"*\n`;
+      answer += `- 📦 **PO Pouch Tracker & Progressive Balance**: *"Show PO Pouch Tracker"* (tracks running balances across repeated POs + Universal & Exclusive pouch pools)\n`;
+      answer += `- 🥫 **Unit Variants & Stock in Kg**: *"Show raw materials with unit variants (tins / kg)"*\n`;
+      answer += `- 📋 **Check Plans**: *"What's the production plan for tomorrow?"*\n`;
+      answer += `- 🌾 **Check Shortages**: *"Show low stock raw materials"*\n`;
+      answer += `- 🧠 **Teach / Correct**: *"Remember that pack size for X is Y"* or *"Keep decimals to 4 digits"*\n`;
     }
 
     // Prepend learning acknowledgment if a rule was just recorded

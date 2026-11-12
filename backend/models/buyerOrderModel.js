@@ -15,8 +15,21 @@ const buyerOrderItemSchema = new mongoose.Schema({
         required: true
     },
     packSize: {
+        type: String,
+        default: '1'
+    },
+    pouchType: {
+        type: String,
+        enum: ['exclusive', 'universal'],
+        default: 'exclusive'
+    },
+    pouchStock: {
         type: Number,
-        default: 1
+        default: 0
+    },
+    dueArrivalDate: {
+        type: String,
+        default: ''
     },
     notes: {
         type: String,

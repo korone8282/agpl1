@@ -9,7 +9,12 @@ import {
   Users,
   ChevronDown,
   ChevronRight,
-  Trash2
+  Trash2,
+  Scale,
+  Search,
+  X,
+  ThermometerSnowflake,
+  Package
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiConnector } from '../../redux/Utils/apiConnector';
@@ -21,7 +26,22 @@ const format3Decimals = (val) => {
   if (val === null || val === undefined || val === '') return '0';
   const num = Number(val);
   if (isNaN(num)) return '0';
-  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+};
+
+const getRecipeStandardYieldKg = (rec) => {
+  if (!rec) return 0;
+  if (Number(rec.batchCookedWeightKg) > 0) return Number(rec.batchCookedWeightKg);
+  if (Number(rec.cookedBatchWeight) > 0) return Number(rec.cookedBatchWeight);
+  if (Array.isArray(rec.ingredients) && rec.ingredients.length > 0) {
+    const sumKg = rec.ingredients.reduce((acc, ing) => {
+      const u = String(ing.unit || 'kg').trim().toLowerCase();
+      const mult = u === 'g' || u === 'gm' || u === 'ml' ? 0.001 : 1;
+      return acc + (Number(ing.edibleQuantity) || 0) * mult;
+    }, 0);
+    if (sumKg > 0) return parseFloat(sumKg.toFixed(4));
+  }
+  return 100;
 };
 
 const isNonStandardUnit = (unit) => {
@@ -56,9 +76,16 @@ const MaterialIssue = () => {
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
+  const [calcBasis, setCalcBasis] = useState('BATCH'); // 'BATCH' or 'YIELD'
   const [noOfBatches, setNoOfBatches] = useState('1');
+  const [recipeYield, setRecipeYield] = useState('');
+  const [givenYield, setGivenYield] = useState('');
   const [issueDate, setIssueDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [issueItems, setIssueItems] = useState([]);
+  const [substitutedRmByRow, setSubstitutedRmByRow] = useState({});
+  const [swapModalRowIdx, setSwapModalRowIdx] = useState(null);
+  const [swapPopoverPos, setSwapPopoverPos] = useState({ top: 100, left: 100, width: 310 });
+  const [swapSearch, setSwapSearch] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
@@ -138,29 +165,41 @@ const MaterialIssue = () => {
     setActiveRecipe(null);
     setActiveOrder(null);
     setIssueItems([]);
+    setSubstitutedRmByRow({});
     setNoOfBatches('1');
+    setRecipeYield('');
+    setGivenYield('');
   };
 
   const handleRecipeSelect = (recId) => {
     setSelectedRecipeId(recId);
+    setSubstitutedRmByRow({});
     if (!recId) {
       setActiveRecipe(null);
       setIssueItems([]);
+      setRecipeYield('');
+      setGivenYield('');
       return;
     }
     const rec = recipes.find((r) => r._id === recId);
     setActiveRecipe(rec);
     setActiveOrder(null);
     setSelectedOrderId('');
+    const stdYield = getRecipeStandardYieldKg(rec);
+    setRecipeYield(String(stdYield));
+    setGivenYield(String(stdYield));
     setNoOfBatches('1'); // single batch by default
-    recalculateIssueItems(rec, null, 1);
+    recalculateIssueItems(rec, null, 1, rawMaterials, calcBasis, stdYield, stdYield, {});
   };
 
   const handleOrderSelect = (ordId) => {
     setSelectedOrderId(ordId);
+    setSubstitutedRmByRow({});
     if (!ordId) {
       setActiveOrder(null);
       setIssueItems([]);
+      setRecipeYield('');
+      setGivenYield('');
       return;
     }
     const ord = orders.find((o) => o._id === ordId);
@@ -168,20 +207,53 @@ const MaterialIssue = () => {
     setActiveOrder(ord);
     setSelectedRecipeId('');
     const batchCount = ord?.items?.[0]?.batches ? String(ord.items[0].batches) : '1';
+    const bNum = parseFloat(batchCount) || 1;
+    const ordRec = ord?.items?.[0]?.recipe;
+    const stdYield = getRecipeStandardYieldKg(ordRec);
+    const targetOrderYield = parseFloat((stdYield * bNum).toFixed(4));
+    setRecipeYield(String(stdYield));
+    setGivenYield(String(targetOrderYield));
     setNoOfBatches(batchCount);
-    recalculateIssueItems(null, ord, parseFloat(batchCount) || 1);
+    recalculateIssueItems(null, ord, bNum, rawMaterials, calcBasis, stdYield, targetOrderYield, {});
   };
 
-  const buildIssueRow = (ing, rowKey, validBatches, materials, cumulativeIssuedByRm) => {
+  const buildIssueRow = (
+    ing,
+    rowKey,
+    validBatches,
+    materials,
+    cumulativeIssuedByRm,
+    basis = 'BATCH',
+    rYieldVal = 0,
+    gYieldVal = 0,
+    subMap = {}
+  ) => {
     let unitMultiplier = 1;
     const ingUnitLower = String(ing.unit || 'kg').trim().toLowerCase();
     if (ingUnitLower === 'g' || ingUnitLower === 'gm') unitMultiplier = 0.001;
     if (ingUnitLower === 'ml') unitMultiplier = 0.001;
 
-    const recipeEdibleKg = parseFloat((Number(ing.edibleQuantity || 0) * unitMultiplier * validBatches).toFixed(3));
-    const recipeGrossKg = parseFloat(
-      (Number(ing.edibleQuantity || 0) * unitMultiplier * (Number(ing.lossFactor) || 1.0) * validBatches).toFixed(3)
-    );
+    const baseEdibleKg = Number(ing.edibleQuantity || 0) * unitMultiplier;
+    const baseGrossKg = baseEdibleKg * (Number(ing.lossFactor) || 1.0);
+
+    let recipeEdibleKg = 0;
+    let recipeGrossKg = 0;
+
+    if (basis === 'YIELD') {
+      const rY = parseFloat(rYieldVal) || 0;
+      const gY = parseFloat(gYieldVal) || 0;
+      // First divide by yield in recipe, then multiply by given yield:
+      // Ingredient A = Qty of A * (Given Yield / Recipe Yield)
+      if (rY > 0 && gY >= 0) {
+        recipeEdibleKg = parseFloat(((baseEdibleKg / rY) * gY).toFixed(4));
+        recipeGrossKg = parseFloat(((baseGrossKg / rY) * gY).toFixed(4));
+      }
+    } else {
+      // By Batch: simply multiply by number of batches
+      recipeEdibleKg = parseFloat((baseEdibleKg * validBatches).toFixed(4));
+      recipeGrossKg = parseFloat((baseGrossKg * validBatches).toFixed(4));
+    }
+
     const targetUnit =
       ingUnitLower === 'g' || ingUnitLower === 'gm'
         ? 'kg'
@@ -189,11 +261,14 @@ const MaterialIssue = () => {
         ? 'L'
         : ing.unit || 'kg';
 
-    const matchedRm = materials.find(
+    const defaultMatchedRm = materials.find(
       (rm) =>
         (ing.rawMaterial && String(rm._id) === String(ing.rawMaterial)) ||
         rm.name.trim().toLowerCase() === ing.materialName.trim().toLowerCase()
     );
+
+    const substitutedRm = subMap && subMap[rowKey] ? subMap[rowKey] : null;
+    const matchedRm = substitutedRm || defaultMatchedRm;
 
     const rmKey = matchedRm ? String(matchedRm._id) : ing.materialName.trim().toLowerCase();
     const availStock = matchedRm ? matchedRm.currentStock || 0 : 0;
@@ -216,13 +291,18 @@ const MaterialIssue = () => {
     const actualIssued = isRmNonStd ? '' : theoreticalGrossQty;
     const actualIssuedNum = parseFloat(actualIssued) || 0;
     const previouslyIssued = cumulativeIssuedByRm.get(rmKey) || 0;
-    const remaining = parseFloat((availStock - previouslyIssued - actualIssuedNum).toFixed(3));
+    const remaining = parseFloat((availStock - previouslyIssued - actualIssuedNum).toFixed(4));
     cumulativeIssuedByRm.set(rmKey, previouslyIssued + actualIssuedNum);
 
     return {
       rowKey,
       rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
       materialName: matchedRm ? matchedRm.name : ing.materialName,
+      originalMaterialName: defaultMatchedRm ? defaultMatchedRm.name : ing.materialName,
+      isSubstituted: Boolean(
+        substitutedRm &&
+          String(substitutedRm._id) !== String(defaultMatchedRm?._id || ing.rawMaterial || '')
+      ),
       edibleBase: Number(ing.edibleQuantity || 0),
       lossFactor: Number(ing.lossFactor) || 1.0,
       unitMultiplier,
@@ -242,33 +322,166 @@ const MaterialIssue = () => {
     };
   };
 
-  const recalculateIssueItems = (rec, ord, batchesVal, currentMaterials) => {
+  const recalculateIssueItems = (
+    rec,
+    ord,
+    batchesVal,
+    currentMaterials,
+    basisOverride,
+    recipeYieldOverride,
+    givenYieldOverride,
+    subMapOverride
+  ) => {
     const materials = currentMaterials || rawMaterials;
+    const basis = basisOverride || calcBasis;
     const bNum = parseFloat(batchesVal);
     const validBatches = isNaN(bNum) || bNum < 0 ? 0 : bNum;
+    const rYieldVal = recipeYieldOverride !== undefined ? recipeYieldOverride : recipeYield;
+    const gYieldVal = givenYieldOverride !== undefined ? givenYieldOverride : givenYield;
+    const activeSubMap = subMapOverride !== undefined ? subMapOverride : substitutedRmByRow;
     const items = [];
     const cumulativeIssuedByRm = new Map();
 
     if (rec && rec.ingredients) {
+      const effectiveRecipeYield = parseFloat(rYieldVal) || getRecipeStandardYieldKg(rec);
       rec.ingredients.forEach((ing, ingIdx) => {
         const rmKey = ing.rawMaterial || ing.materialName.trim().toLowerCase();
-        items.push(buildIssueRow(ing, `${rmKey}_${ingIdx}`, validBatches, materials, cumulativeIssuedByRm));
+        items.push(
+          buildIssueRow(
+            ing,
+            `${rmKey}_${ingIdx}`,
+            validBatches,
+            materials,
+            cumulativeIssuedByRm,
+            basis,
+            effectiveRecipeYield,
+            gYieldVal,
+            activeSubMap
+          )
+        );
       });
     } else if (ord && ord.items) {
       ord.items.forEach((item, ordItemIdx) => {
         const recipe = item.recipe;
         if (!recipe || !recipe.ingredients) return;
+        const effectiveRecipeYield = parseFloat(rYieldVal) || getRecipeStandardYieldKg(recipe);
 
         recipe.ingredients.forEach((ing, ingIdx) => {
           const rmKey = ing.rawMaterial || ing.materialName.trim().toLowerCase();
           items.push(
-            buildIssueRow(ing, `${rmKey}_${ordItemIdx}_${ingIdx}`, validBatches, materials, cumulativeIssuedByRm)
+            buildIssueRow(
+              ing,
+              `${rmKey}_${ordItemIdx}_${ingIdx}`,
+              validBatches,
+              materials,
+              cumulativeIssuedByRm,
+              basis,
+              effectiveRecipeYield,
+              gYieldVal,
+              activeSubMap
+            )
           );
         });
       });
     }
 
     setIssueItems(items);
+  };
+
+  const computePopoverPosition = (triggerEl) => {
+    if (!triggerEl || typeof window === 'undefined') {
+      return { top: 120, left: 120, width: 300 };
+    }
+    const rect = triggerEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const sideMargin = 14;
+    const topMargin = 72;
+    const bottomMargin = 56;
+    const popWidth = Math.min(310, vw - sideMargin * 2);
+    const popHeight = 330;
+
+    // Open right beside the icon; if not enough horizontal room, clamp within viewport
+    let left = rect.right + 10;
+    if (left + popWidth > vw - sideMargin) {
+      left = Math.max(sideMargin, Math.min(rect.left, vw - popWidth - sideMargin));
+    }
+
+    // Center vertically beside the clicked ingredient row (shifted slightly above),
+    // and keep a comfortable gap above the bottom edge of the screen
+    const iconCenterY = rect.top + rect.height / 2;
+    let top = Math.round(iconCenterY - popHeight * 0.55);
+    if (top + popHeight > vh - bottomMargin) {
+      top = Math.max(topMargin, vh - popHeight - bottomMargin);
+    }
+    if (top < topMargin) {
+      top = topMargin;
+    }
+
+    return { top, left, width: popWidth };
+  };
+
+  const openIngredientSwapModal = (idx, e) => {
+    if (e) e.stopPropagation();
+    if (swapModalRowIdx === idx) {
+      setSwapModalRowIdx(null);
+      return;
+    }
+    if (e?.currentTarget) {
+      setSwapPopoverPos(computePopoverPosition(e.currentTarget));
+    }
+    setSwapModalRowIdx(idx);
+    setSwapSearch('');
+  };
+
+  const handleSelectSubstituteIngredient = (newRm) => {
+    if (swapModalRowIdx === null || !issueItems[swapModalRowIdx] || !newRm) return;
+    const targetRow = issueItems[swapModalRowIdx];
+    const nextSubMap = {
+      ...substitutedRmByRow,
+      [targetRow.rowKey]: newRm
+    };
+    setSubstitutedRmByRow(nextSubMap);
+
+    const stockUnit = newRm.baseUnit || 'kg';
+    const variants = getMaterialVariants(newRm);
+    const isRmNonStd = isNonStandardUnit(stockUnit);
+    const selectedVariantKg =
+      isRmNonStd && variants.length > 0
+        ? Number(variants[0])
+        : isRmNonStd && newRm.unitWeightKg
+        ? Number(newRm.unitWeightKg)
+        : null;
+
+    const updated = [...issueItems];
+    updated[swapModalRowIdx] = {
+      ...targetRow,
+      rawMaterialId: newRm._id,
+      materialName: newRm.name,
+      isSubstituted: newRm.name.trim().toLowerCase() !== (targetRow.originalMaterialName || '').trim().toLowerCase(),
+      availableStock: newRm.currentStock || 0,
+      unit: stockUnit,
+      stockUnit,
+      variants,
+      unitWeightKg: selectedVariantKg,
+      actualIssuedQty: isRmNonStd ? '' : targetRow.theoreticalGrossQty
+    };
+
+    // Recalculate remainingStock progressively across all rows
+    const cumulative = new Map();
+    updated.forEach((it) => {
+      const rmKey = String(it.rawMaterialId || it.materialName).trim().toLowerCase();
+      const usedBefore = cumulative.get(rmKey) || 0;
+      const numVal = parseFloat(it.actualIssuedQty);
+      const thisIssued = isNaN(numVal) ? 0 : numVal;
+      it.remainingStock = parseFloat(((it.availableStock || 0) - usedBefore - thisIssued).toFixed(4));
+      cumulative.set(rmKey, usedBefore + thisIssued);
+    });
+
+    setIssueItems(updated);
+    setSwapModalRowIdx(null);
+    setSwapSearch('');
+    toast.success(`Switched issue ingredient to "${newRm.name}" (recipe master unchanged)`);
   };
 
   const handleVariantChange = (idx, newVariantVal) => {
@@ -284,11 +497,46 @@ const MaterialIssue = () => {
     setIssueItems(updated);
   };
 
+  const handleCalcBasisChange = (newBasis) => {
+    setCalcBasis(newBasis);
+    const rec = activeRecipe || activeOrder?.items?.[0]?.recipe;
+    const stdY = parseFloat(recipeYield) || getRecipeStandardYieldKg(rec);
+    const bNum = parseFloat(noOfBatches) || 1;
+    const gY = givenYield !== '' ? parseFloat(givenYield) : parseFloat((stdY * bNum).toFixed(4));
+    if (!recipeYield && stdY > 0) setRecipeYield(String(stdY));
+    if (givenYield === '' && gY > 0) setGivenYield(String(gY));
+    if (activeRecipe || activeOrder) {
+      recalculateIssueItems(activeRecipe, activeOrder, bNum, rawMaterials, newBasis, stdY, gY);
+    }
+  };
+
   const handleBatchesChange = (newVal) => {
     setNoOfBatches(newVal);
     const bNum = parseFloat(newVal);
     if (!isNaN(bNum) && bNum >= 0 && (activeRecipe || activeOrder)) {
-      recalculateIssueItems(activeRecipe, activeOrder, bNum);
+      recalculateIssueItems(activeRecipe, activeOrder, bNum, rawMaterials, 'BATCH', recipeYield, givenYield);
+    }
+  };
+
+  const handleRecipeYieldChange = (newVal) => {
+    setRecipeYield(newVal);
+    const rNum = parseFloat(newVal);
+    const gNum = parseFloat(givenYield);
+    if (!isNaN(rNum) && rNum > 0 && !isNaN(gNum) && gNum >= 0 && (activeRecipe || activeOrder)) {
+      const eqBatches = parseFloat((gNum / rNum).toFixed(4));
+      setNoOfBatches(String(eqBatches));
+      recalculateIssueItems(activeRecipe, activeOrder, eqBatches, rawMaterials, 'YIELD', rNum, gNum);
+    }
+  };
+
+  const handleGivenYieldChange = (newVal) => {
+    setGivenYield(newVal);
+    const gNum = parseFloat(newVal);
+    const rNum = parseFloat(recipeYield) || getRecipeStandardYieldKg(activeRecipe || activeOrder?.items?.[0]?.recipe);
+    if (!isNaN(gNum) && gNum >= 0 && rNum > 0 && (activeRecipe || activeOrder)) {
+      const eqBatches = parseFloat((gNum / rNum).toFixed(4));
+      setNoOfBatches(String(eqBatches));
+      recalculateIssueItems(activeRecipe, activeOrder, eqBatches, rawMaterials, 'YIELD', rNum, gNum);
     }
   };
 
@@ -303,7 +551,7 @@ const MaterialIssue = () => {
       const usedBefore = cumulative.get(rmKey) || 0;
       const numVal = parseFloat(it.actualIssuedQty);
       const thisIssued = isNaN(numVal) ? 0 : numVal;
-      it.remainingStock = parseFloat(((it.availableStock || 0) - usedBefore - thisIssued).toFixed(3));
+      it.remainingStock = parseFloat(((it.availableStock || 0) - usedBefore - thisIssued).toFixed(4));
       cumulative.set(rmKey, usedBefore + thisIssued);
     });
 
@@ -337,14 +585,25 @@ const MaterialIssue = () => {
       return;
     }
 
-    const bCount = parseFloat(noOfBatches) || 1;
+    const rYNum = parseFloat(recipeYield) || getRecipeStandardYieldKg(activeRecipe || activeOrder?.items?.[0]?.recipe) || 1;
+    const gYNum = parseFloat(givenYield) || 0;
+    const bCount =
+      calcBasis === 'YIELD' && rYNum > 0
+        ? parseFloat((gYNum / rYNum).toFixed(4))
+        : parseFloat((parseFloat(noOfBatches) || 1).toFixed(4));
+
     if (bCount <= 0) {
-      toast.error('Number of batches must be greater than 0');
+      toast.error(calcBasis === 'YIELD' ? 'Given yield must be greater than 0' : 'Number of batches must be greater than 0');
       return;
     }
 
     try {
       setIssuing(true);
+      const supervisorLabel =
+        calcBasis === 'YIELD'
+          ? `By Yield: ${format3Decimals(gYNum)} kg / ${format3Decimals(rYNum)} kg (${bCount}b)`
+          : `Batch: ${bCount}`;
+
       const payload = {
         productionOrderId: selectedOrderId || null,
         recipeId: activeRecipe ? activeRecipe._id : null,
@@ -352,19 +611,23 @@ const MaterialIssue = () => {
         issueDate: issueDate || new Date().toISOString().split('T')[0],
         buyerName: activeRecipe?.buyerName || activeOrder?.buyerName || activeOrder?.items?.[0]?.recipe?.buyerName || 'General',
         productName: activeRecipe?.productName || activeOrder?.items?.[0]?.productName || 'Recipe Issue',
-        kitchenSupervisor: `Batch: ${bCount}`,
+        kitchenSupervisor: supervisorLabel,
         items: issueItems.map((it) => ({
           ...it,
-          openingStock: it.availableStock !== undefined ? parseFloat(Number(it.availableStock).toFixed(3)) : undefined,
-          closingStock: it.remainingStock !== undefined ? parseFloat(Number(it.remainingStock).toFixed(3)) : undefined,
-          actualIssuedQty: parseFloat((Number(it.actualIssuedQty) || 0).toFixed(3))
+          openingStock: it.availableStock !== undefined ? parseFloat(Number(it.availableStock).toFixed(4)) : undefined,
+          closingStock: it.remainingStock !== undefined ? parseFloat(Number(it.remainingStock).toFixed(4)) : undefined,
+          actualIssuedQty: parseFloat((Number(it.actualIssuedQty) || 0).toFixed(4))
         })),
-        notes
+        notes: calcBasis === 'YIELD' && !notes.includes('Yield:') ? `${notes ? `${notes} | ` : ''}[Issued by Yield: ${format3Decimals(gYNum)}kg of ${format3Decimals(rYNum)}kg recipe yield]` : notes
       };
 
       const res = await apiConnector(`${INVENTORY_MRP_URL}/material-issues`, 'POST', payload);
       if (res.data?.success) {
-        toast.success(`Materials successfully issued for ${bCount} batch(es)!`);
+        toast.success(
+          calcBasis === 'YIELD'
+            ? `Materials successfully issued for ${format3Decimals(gYNum)} kg yield (${bCount} batch eq.)!`
+            : `Materials successfully issued for ${bCount} batch(es)!`
+        );
         setSelectedRecipeId('');
         setSelectedOrderId('');
         setActiveRecipe(null);
@@ -372,6 +635,8 @@ const MaterialIssue = () => {
         setIssueItems([]);
         setNotes('');
         setNoOfBatches('1');
+        setRecipeYield('');
+        setGivenYield('');
         fetchInitialData();
       }
     } catch (err) {
@@ -488,6 +753,57 @@ const MaterialIssue = () => {
             </div>
           </div>
 
+          {/* Calculation Basis Toggle: By Batch vs By Yield */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-black/50 border border-white/10">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider mr-1">
+                Issue Calculation Basis:
+              </span>
+              <button
+                type="button"
+                onClick={() => handleCalcBasisChange('BATCH')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  calcBasis === 'BATCH'
+                    ? 'bg-primary text-black shadow-md shadow-primary/20'
+                    : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
+                }`}
+              >
+                By Batch (× No. of Batches)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCalcBasisChange('YIELD')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  calcBasis === 'YIELD'
+                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                    : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
+                }`}
+              >
+                By Yield (Given Yield ÷ Recipe Yield)
+              </button>
+            </div>
+
+            <div className="text-[11px] font-mono text-gray-400">
+              {calcBasis === 'BATCH' ? (
+                <span>
+                  Formula: <strong className="text-primary">Ingredient A = Qty of A × No. of Batches</strong>
+                </span>
+              ) : (
+                <span>
+                  Formula:{' '}
+                  <strong className="text-emerald-400">
+                    Ingredient A = Qty of A × (Given Yield ÷ Recipe Yield)
+                  </strong>
+                  {parseFloat(recipeYield) > 0 && parseFloat(givenYield) >= 0 && (
+                    <span className="ml-2 text-white">
+                      [Multiplier: {format3Decimals(parseFloat(givenYield) / parseFloat(recipeYield))}x]
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* Step 2: Form Controls */}
           {issueMode === 'RECIPE' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -529,25 +845,62 @@ const MaterialIssue = () => {
                   <option value="">-- Choose Recipe ({filteredRecipes.length}) --</option>
                   {filteredRecipes.map((r) => (
                     <option key={r._id} value={r._id}>
-                      {r.productName} {r.buyerName ? `(${r.buyerName})` : ''} — 1 Batch
+                      {r.productName} {r.buyerName ? `(${r.buyerName})` : ''} — {getRecipeStandardYieldKg(r)} kg Yield
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">No of Batches (can be decimal) *</label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0.001"
-                  required
-                  placeholder="e.g. 1, 0.5, 1.5, 2.5"
-                  value={noOfBatches}
-                  onChange={(e) => handleBatchesChange(e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-primary"
-                />
-              </div>
+              {calcBasis === 'BATCH' ? (
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    No of Batches (up to 4 decimals) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    required
+                    placeholder="e.g. 1, 0.5, 1.25, 2.5"
+                    value={noOfBatches}
+                    onChange={(e) => handleBatchesChange(e.target.value)}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-primary"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Recipe Yield (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0.0001"
+                      required
+                      placeholder="Recipe Yield"
+                      value={recipeYield}
+                      onChange={(e) => handleRecipeYieldChange(e.target.value)}
+                      className="w-full bg-black border border-white/15 rounded-xl px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-emerald-400 mb-1">
+                      Given Yield (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0.0001"
+                      required
+                      placeholder="Target Yield"
+                      value={givenYield}
+                      onChange={(e) => handleGivenYieldChange(e.target.value)}
+                      className="w-full bg-black border border-emerald-500/50 rounded-xl px-3 py-2 text-sm text-emerald-300 font-mono font-bold focus:outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">Remarks / Shift Notes</label>
@@ -582,19 +935,56 @@ const MaterialIssue = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">No of Batches (can be decimal) *</label>
-                <input
-                  type="number"
-                  step="any"
-                  min="0.001"
-                  required
-                  placeholder="e.g. 1, 0.5, 1.5, 2.5"
-                  value={noOfBatches}
-                  onChange={(e) => handleBatchesChange(e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-primary"
-                />
-              </div>
+              {calcBasis === 'BATCH' ? (
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    No of Batches (up to 4 decimals) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    required
+                    placeholder="e.g. 1, 0.5, 1.5, 2.5"
+                    value={noOfBatches}
+                    onChange={(e) => handleBatchesChange(e.target.value)}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono font-bold focus:outline-none focus:border-primary"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Recipe Yield (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0.0001"
+                      required
+                      placeholder="Recipe Yield"
+                      value={recipeYield}
+                      onChange={(e) => handleRecipeYieldChange(e.target.value)}
+                      className="w-full bg-black border border-white/15 rounded-xl px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-emerald-400 mb-1">
+                      Given Yield (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0.0001"
+                      required
+                      placeholder="Target Yield"
+                      value={givenYield}
+                      onChange={(e) => handleGivenYieldChange(e.target.value)}
+                      className="w-full bg-black border border-emerald-500/50 rounded-xl px-3 py-2 text-sm text-emerald-300 font-mono font-bold focus:outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">Remarks / Shift Notes</label>
@@ -650,7 +1040,22 @@ const MaterialIssue = () => {
                         <tr key={item.rowKey || idx} className="hover:bg-white/5">
                           <td className="py-3 px-3 text-center font-mono text-gray-500">{idx + 1}</td>
                           <td className="py-3 px-4 font-medium text-white">
-                            <div>{item.materialName}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span>{item.materialName}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => openIngredientSwapModal(idx, e)}
+                                title="Change / substitute ingredient from Live Stock Ledger (does not change master recipe)"
+                                className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
+                              >
+                                <Scale className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {item.isSubstituted && item.originalMaterialName && (
+                              <div className="text-[10px] text-amber-400/90 font-normal mt-0.5">
+                                Substituted for: <span className="font-mono">{item.originalMaterialName}</span>
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right font-mono text-gray-300">
                             {format3Decimals(item.theoreticalEdibleQty)} {recipeUnit}
@@ -729,7 +1134,7 @@ const MaterialIssue = () => {
                               <div className="flex items-center justify-end gap-1">
                                 <input
                                   type="number"
-                                  step="0.001"
+                                  step="0.0001"
                                   min="0"
                                   required
                                   value={item.actualIssuedQty}
@@ -995,6 +1400,137 @@ const MaterialIssue = () => {
           </div>
         )}
       </div>
+
+      {/* MINI POPOVER BESIDE INGREDIENT: Substitute / Change Issue Ingredient from Live Stock Ledger */}
+      {swapModalRowIdx !== null && issueItems[swapModalRowIdx] && (
+        <>
+          {/* Transparent click-away layer (no screen blur or dark overlay) */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setSwapModalRowIdx(null)}
+          />
+          <div
+            style={{
+              top: `${swapPopoverPos.top}px`,
+              left: `${swapPopoverPos.left}px`,
+              width: `${swapPopoverPos.width}px`,
+              maxHeight: 'calc(100vh - 110px)'
+            }}
+            className="fixed z-50 bg-[#141418] border border-white/20 rounded-xl p-3 shadow-2xl space-y-2.5 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-white/10 pb-2">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Scale className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="truncate">Swap: {issueItems[swapModalRowIdx].materialName}</span>
+                </h3>
+                <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                  Recipe unchanged • Deducts selected stock
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSwapModalRowIdx(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Search stock ledger..."
+                value={swapSearch}
+                onChange={(e) => setSwapSearch(e.target.value)}
+                className="w-full bg-black border border-white/15 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Scrollable Live Stock Ledger Ingredients List */}
+            <div className="max-h-52 overflow-y-auto divide-y divide-white/5 border border-white/10 rounded-lg bg-black/60">
+              {rawMaterials
+                .filter((rm) => {
+                  if (!swapSearch.trim()) return true;
+                  const q = swapSearch.trim().toLowerCase();
+                  return (
+                    (rm.name && rm.name.toLowerCase().includes(q)) ||
+                    (rm.code && rm.code.toLowerCase().includes(q)) ||
+                    (rm.baseUnit && rm.baseUnit.toLowerCase().includes(q)) ||
+                    (rm.storageType && rm.storageType.toLowerCase().includes(q))
+                  );
+                })
+                .map((rm) => {
+                  const isCurrent =
+                    String(rm._id) === String(issueItems[swapModalRowIdx].rawMaterialId) ||
+                    rm.name.trim().toLowerCase() === issueItems[swapModalRowIdx].materialName.trim().toLowerCase();
+                  const isOriginalRecipe =
+                    rm.name.trim().toLowerCase() ===
+                    (issueItems[swapModalRowIdx].originalMaterialName || '').trim().toLowerCase();
+                  const variants = getMaterialVariants(rm);
+                  const isNonStd = isNonStandardUnit(rm.baseUnit) && variants.length > 0;
+                  const primaryKg = isNonStd ? variants[0] : 0;
+
+                  return (
+                    <button
+                      key={rm._id}
+                      type="button"
+                      onClick={() => handleSelectSubstituteIngredient(rm)}
+                      className={`w-full text-left px-2.5 py-2 flex items-center justify-between gap-2 transition-colors ${
+                        isCurrent
+                          ? 'bg-primary/15 text-primary'
+                          : 'hover:bg-white/10 text-gray-200'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold truncate flex items-center gap-1">
+                          <span className="truncate">{rm.name}</span>
+                          {isOriginalRecipe && (
+                            <span className="px-1 py-0.2 rounded text-[8px] font-mono bg-white/10 text-gray-300 shrink-0">
+                              Recipe
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-gray-400">
+                          <span className="inline-flex items-center gap-0.5">
+                            {rm.storageType === 'Cold' ? (
+                              <ThermometerSnowflake className="w-2.5 h-2.5 text-cyan-400" />
+                            ) : (
+                              <Package className="w-2.5 h-2.5 text-amber-400" />
+                            )}
+                            {rm.storageType || 'Ambient'}
+                          </span>
+                          {isNonStd && (
+                            <span className="text-emerald-400 font-mono truncate">
+                              ({variants.map((v) => `${format3Decimals(v)}kg`).join('/')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 font-mono">
+                        <div className="text-[11px] font-bold text-cyan-300">
+                          {isNonStd
+                            ? `${format3Decimals((rm.currentStock || 0) * primaryKg)} kg`
+                            : `${format3Decimals(rm.currentStock || 0)} ${rm.baseUnit || 'kg'}`}
+                        </div>
+                        {isNonStd && (
+                          <div className="text-[9px] text-gray-400">
+                            {format3Decimals(rm.currentStock || 0)} {rm.baseUnit}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

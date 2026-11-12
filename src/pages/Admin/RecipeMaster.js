@@ -28,7 +28,7 @@ const format3Decimals = (val) => {
   if (val === null || val === undefined || val === '') return '0';
   const num = Number(val);
   if (isNaN(num)) return '0';
-  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+  return num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
 };
 
 const RecipeMaster = () => {
@@ -773,7 +773,7 @@ const RecipeMaster = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.001"
+                      step="0.0001"
                       required
                       placeholder="e.g. 70"
                       value={newRecipe.batchCookedWeightKg || ''}
@@ -799,7 +799,7 @@ const RecipeMaster = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <input
                       type="number"
-                      step="0.001"
+                      step="0.0001"
                       placeholder="e.g. 0.16 or 0.2 (in kg)"
                       value={newPackSizeInput}
                       onChange={(e) => setNewPackSizeInput(e.target.value)}
@@ -891,7 +891,7 @@ const RecipeMaster = () => {
                         <div className="col-span-2">
                           <input
                             type="number"
-                            step="0.001"
+                            step="0.0001"
                             required
                             placeholder="Edible Qty"
                             value={ing.edibleQuantity}
@@ -902,7 +902,7 @@ const RecipeMaster = () => {
                         <div className="col-span-2">
                           <input
                             type="number"
-                            step="0.001"
+                            step="0.0001"
                             placeholder="Loss (e.g. 1.176)"
                             value={ing.lossFactor}
                             onChange={(e) => updateIngredientRow(idx, 'lossFactor', e.target.value)}
@@ -1016,7 +1016,7 @@ const RecipeMaster = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.001"
+                      step="0.0001"
                       required
                       placeholder="e.g. 70"
                       value={editRecipeForm.batchCookedWeightKg || ''}
@@ -1045,7 +1045,7 @@ const RecipeMaster = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <input
                       type="number"
-                      step="0.001"
+                      step="0.0001"
                       placeholder="e.g. 0.16 or 0.2 (in kg)"
                       value={editPackSizeInput}
                       onChange={(e) => setEditPackSizeInput(e.target.value)}
@@ -1137,7 +1137,7 @@ const RecipeMaster = () => {
                         <div className="col-span-2">
                           <input
                             type="number"
-                            step="0.001"
+                            step="0.0001"
                             required
                             placeholder="Edible Qty"
                             value={ing.edibleQuantity}
@@ -1148,7 +1148,7 @@ const RecipeMaster = () => {
                         <div className="col-span-2">
                           <input
                             type="number"
-                            step="0.001"
+                            step="0.0001"
                             placeholder="Loss (e.g. 1.176)"
                             value={ing.lossFactor}
                             onChange={(e) => updateEditIngredientRow(idx, 'lossFactor', e.target.value)}

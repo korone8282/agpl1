@@ -84,31 +84,31 @@ return (
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
-              <span className="text-xs text-zinc-400 font-mono uppercase">From:</span>
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+            <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl min-w-[140px]">
+              <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">From:</span>
               <Input
                 type="date"
                 name="start"
                 onChange={(e) => inputHandler(e)}
-                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
               />
             </div>
 
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-1.5 rounded-xl">
-              <span className="text-xs text-zinc-400 font-mono uppercase">To:</span>
+            <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl min-w-[140px]">
+              <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">To:</span>
               <Input
                 type="date"
                 name="end"
                 onChange={(e) => inputHandler(e)}
-                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
               />
             </div>
 
             <button
               type="button"
               onClick={getReport}
-              className="px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer"
             >
               Filter Ledger
             </button>

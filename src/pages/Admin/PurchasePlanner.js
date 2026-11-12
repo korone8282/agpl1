@@ -22,10 +22,13 @@ import {
   ExternalLink,
   ListOrdered,
   Search,
-  Download
+  Download,
+  PackageCheck,
+  Save,
+  RotateCcw
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
-import { INVENTORY_MRP_URL, CATEGORIES_URL } from '../../redux/Utils/constants';
+import { INVENTORY_MRP_URL, CATEGORIES_URL, PRODUCT_URL } from '../../redux/Utils/constants';
 import Loader from '../../components/Loader';
 import { toast } from 'react-toastify';
 
@@ -76,10 +79,112 @@ const PurchasePlanner = () => {
   const [orders, setOrders] = useState([]);
   const [recipes, setRecipes] = useState([]);
   const [buyers, setBuyers] = useState([]);
+  const [products, setProducts] = useState([]);
   const [mrpData, setMrpData] = useState([]);
   const [selectedMrpVariants, setSelectedMrpVariants] = useState({});
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
+
+  // PO Pouch Tracker State (Master Buyer Orders)
+  const [trackerRows, setTrackerRows] = useState([]);
+  const [trackerSearch, setTrackerSearch] = useState('');
+  const [trackerSaving, setTrackerSaving] = useState(false);
+  const [trackerExporting, setTrackerExporting] = useState(false);
+  const [isTrackerDirty, setIsTrackerDirty] = useState(false);
+  const [pouchSummary, setPouchSummary] = useState({ products: [], universalPools: [] });
+
+  const normalizePackSize = (val) => {
+    if (!val && val !== 0) return '';
+    const s = String(val).trim().toLowerCase();
+    const num = parseFloat(s.replace(/[^0-9.]/g, ''));
+    if (isNaN(num) || num <= 0) return s;
+    if (s.includes('kg') || num < 5) {
+      const grams = Math.round(num * 1000);
+      return `${grams}g`;
+    }
+    const grams = Math.round(num);
+    return `${grams}g`;
+  };
+
+  const getPouchPoolKey = (row, productList = products, summary = pouchSummary) => {
+    const pName = (row.productName || '').trim().toLowerCase();
+    const bName = (row.buyerName || '').trim().toLowerCase();
+
+    const prod = (productList || []).find(
+      (p) => p.name?.trim().toLowerCase() === pName && (!bName || p.buyer?.trim().toLowerCase() === bName)
+    ) || (productList || []).find((p) => p.name?.trim().toLowerCase() === pName);
+
+    const pouchType = row.pouchType || prod?.pouchType || 'exclusive';
+    const rawSize = row.packSize || prod?.packSize || '';
+    const normSize = normalizePackSize(rawSize);
+
+    if (pouchType === 'universal' && normSize) {
+      return {
+        poolKey: `universal_${bName}_${normSize}`,
+        pouchType: 'universal',
+        packSize: normSize,
+        label: `Universal (${normSize})`
+      };
+    }
+    return {
+      poolKey: `exclusive_${bName}_${pName}`,
+      pouchType: 'exclusive',
+      packSize: normSize || '1',
+      label: 'Exclusive'
+    };
+  };
+
+  const buildTrackerRows = (ordersList, productList = [], summary = pouchSummary) => {
+    const currentMonthIdx = new Date().getMonth();
+    const rows = [];
+    (ordersList || []).forEach((bo) => {
+      const poNo = bo.orderNumber || '';
+      const buyer = bo.buyerName || '';
+      const defaultDate = bo.deliveryDate
+        ? new Date(bo.deliveryDate).toISOString().split('T')[0]
+        : '';
+
+      (bo.items || []).forEach((it, itIdx) => {
+        const pName = (it.productName || '').trim().toLowerCase();
+        const bName = (buyer || '').trim().toLowerCase();
+
+        const prod = (productList || []).find(
+          (p) => p.name?.trim().toLowerCase() === pName && (!bName || p.buyer?.trim().toLowerCase() === bName)
+        ) || (productList || []).find((p) => p.name?.trim().toLowerCase() === pName);
+
+        const pouchType = it.pouchType || prod?.pouchType || 'exclusive';
+        const rawSize = it.packSize || prod?.packSize || '';
+        const normSize = normalizePackSize(rawSize);
+
+        let pStock = it.pouchStock;
+        if (pStock === undefined || pStock === null || pStock === '') {
+          if (pouchType === 'universal' && normSize) {
+            const pool = (summary?.universalPools || []).find(
+              (up) => up.packSize === normSize && (!bName || up.buyer?.trim().toLowerCase() === bName)
+            );
+            pStock = pool?.currentBalance ?? pool?.remain ?? prod?.pouches?.[currentMonthIdx]?.remain ?? prod?.pouches?.[currentMonthIdx]?.stock ?? 0;
+          } else {
+            pStock = prod?.currentBalance ?? prod?.remain ?? prod?.pouches?.[currentMonthIdx]?.remain ?? prod?.pouches?.[currentMonthIdx]?.stock ?? 0;
+          }
+        }
+
+        rows.push({
+          rowKey: it._id ? String(it._id) : `${bo._id || 'new'}_item_${itIdx}_${Math.random()}`,
+          orderId: bo._id,
+          itemId: it._id,
+          orderNumber: poNo,
+          buyerName: buyer,
+          productName: it.productName || '',
+          pouchType: pouchType,
+          packSize: normSize || rawSize || '',
+          targetPouches: it.targetPouches !== undefined && it.targetPouches !== null ? it.targetPouches : '',
+          pouchStock: pStock !== undefined && pStock !== null ? pStock : 0,
+          dueArrivalDate: it.dueArrivalDate || defaultDate || ''
+        });
+      });
+    });
+    return rows;
+  };
 
   // Selected Planned Production Batches & Master Buyer Orders to Evaluate in MRP Matrix
   const [selectedBatchIds, setSelectedBatchIds] = useState(new Set());
@@ -166,15 +271,25 @@ const PurchasePlanner = () => {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const [buyerRes, orderRes, recRes, catRes] = await Promise.all([
+      const [buyerRes, orderRes, recRes, catRes, prodRes, pouchSumRes] = await Promise.all([
         apiConnector(`${INVENTORY_MRP_URL}/buyer-orders`, 'GET').catch(() => ({ data: { success: false, data: [] } })),
         apiConnector(`${INVENTORY_MRP_URL}/production-orders`, 'GET'),
         apiConnector(`${INVENTORY_MRP_URL}/recipes`, 'GET'),
-        apiConnector(`${CATEGORIES_URL}/categories`, 'GET').catch(() => ({ data: { data: [] } }))
+        apiConnector(`${CATEGORIES_URL}/categories`, 'GET').catch(() => ({ data: { data: [] } })),
+        apiConnector(`${PRODUCT_URL}/products`, 'GET').catch(() => ({ data: { data: [] } })),
+        apiConnector(`${PRODUCT_URL}/pouch-summary`, 'GET').catch(() => ({ data: { success: false, products: [], universalPools: [] } }))
       ]);
+
+      const prods = prodRes?.data?.data || [];
+      setProducts(prods);
+
+      const summary = pouchSumRes?.data?.success ? pouchSumRes.data : { products: [], universalPools: [] };
+      setPouchSummary(summary);
 
       const bos = buyerRes.data?.success ? buyerRes.data.data : [];
       setBuyerOrders(bos);
+      setTrackerRows(buildTrackerRows(bos, prods, summary));
+      setIsTrackerDirty(false);
 
       const ords = orderRes.data?.success ? orderRes.data.data : [];
       setOrders(ords);
@@ -405,6 +520,8 @@ const PurchasePlanner = () => {
         const refRes = await apiConnector(`${INVENTORY_MRP_URL}/buyer-orders`, 'GET');
         if (refRes.data?.success) {
           setBuyerOrders(refRes.data.data);
+          setTrackerRows(buildTrackerRows(refRes.data.data, products));
+          setIsTrackerDirty(false);
           const updatedSelection = new Set(selectedBuyerOrderIds);
           if (res.data.data?._id) {
             updatedSelection.add(res.data.data._id);
@@ -498,6 +615,8 @@ const PurchasePlanner = () => {
         const refRes = await apiConnector(`${INVENTORY_MRP_URL}/buyer-orders`, 'GET');
         if (refRes.data?.success) {
           setBuyerOrders(refRes.data.data);
+          setTrackerRows(buildTrackerRows(refRes.data.data, products));
+          setIsTrackerDirty(false);
           runMrpCalculation(selectedBatchIds, selectedBuyerOrderIds);
         }
       }
@@ -521,6 +640,8 @@ const PurchasePlanner = () => {
         const refRes = await apiConnector(`${INVENTORY_MRP_URL}/buyer-orders`, 'GET');
         if (refRes.data?.success) {
           setBuyerOrders(refRes.data.data);
+          setTrackerRows(buildTrackerRows(refRes.data.data, products));
+          setIsTrackerDirty(false);
           if (wasSelected) {
             runMrpCalculation(selectedBatchIds, updatedSelected);
           }
@@ -547,6 +668,250 @@ const PurchasePlanner = () => {
     });
     setShowOrderModal(true);
   };
+
+  // ========================================================
+  // PO POUCH TRACKER (FOR MASTER BUYER ORDERS) HANDLERS
+  // ========================================================
+  const uniqueProductOptions = React.useMemo(() => {
+    const set = new Set();
+    (recipes || []).forEach((r) => {
+      if (r?.productName?.trim()) set.add(r.productName.trim());
+    });
+    (products || []).forEach((p) => {
+      if (p?.name?.trim()) set.add(p.name.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [recipes, products]);
+
+  const handleTrackerCellChange = (rowKey, field, value) => {
+    setTrackerRows((prev) =>
+      prev.map((r) => {
+        if (r.rowKey !== rowKey) return r;
+        const updated = { ...r, [field]: value };
+        if (field === 'pouchStock') {
+          updated.customStock = Number(value) || 0;
+        }
+        if (field === 'productName' && (!r.pouchStock || Number(r.pouchStock) === 0)) {
+          const currentMonthIdx = new Date().getMonth();
+          const prod = (products || []).find(
+            (p) => p.name?.trim().toLowerCase() === String(value).trim().toLowerCase()
+          );
+          if (prod && prod.pouches?.[currentMonthIdx]?.stock !== undefined) {
+            updated.pouchStock = prod.pouches[currentMonthIdx].remain ?? prod.pouches[currentMonthIdx].stock;
+          }
+        }
+        return updated;
+      })
+    );
+    setIsTrackerDirty(true);
+  };
+
+  const handleSyncPouchStockFromDb = async () => {
+    try {
+      setLoading(true);
+      const res = await apiConnector(`${PRODUCT_URL}/pouch-summary`, 'GET');
+      if (res.data?.success) {
+        setPouchSummary(res.data);
+        // Clear manual customStock overrides to re-align with DB
+        setTrackerRows((prev) =>
+          prev.map((r) => {
+            const { customStock, ...rest } = r;
+            return rest;
+          })
+        );
+        toast.success('Pouch stocks successfully synchronized with DB Pouch Reconciliation ledger!');
+      } else {
+        toast.info('Fetched pouch data from database');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to sync pouch stock from DB');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddTrackerRow = () => {
+    const newRow = {
+      rowKey: `new_${Date.now()}_${Math.random()}`,
+      orderId: null,
+      itemId: null,
+      orderNumber: '',
+      buyerName: '',
+      productName: '',
+      pouchType: 'exclusive',
+      packSize: '',
+      targetPouches: '',
+      pouchStock: 0,
+      dueArrivalDate: ''
+    };
+    setTrackerRows((prev) => [newRow, ...prev]);
+    setIsTrackerDirty(true);
+  };
+
+  const handleDeleteTrackerRow = (rowKey) => {
+    setTrackerRows((prev) => prev.filter((r) => r.rowKey !== rowKey));
+    setIsTrackerDirty(true);
+  };
+
+  const handleResetTracker = () => {
+    setTrackerRows(buildTrackerRows(buyerOrders, products, pouchSummary));
+    setIsTrackerDirty(false);
+    toast.info('PO Pouch Tracker reset to saved database state');
+  };
+
+  const handleSaveTracker = async () => {
+    try {
+      setTrackerSaving(true);
+      const res = await apiConnector(
+        `${INVENTORY_MRP_URL}/buyer-orders/sync-pouch-tracker`,
+        'PUT',
+        { rows: computedTrackerRows }
+      );
+      if (res.data?.success) {
+        toast.success(res.data.message || 'PO Pouch Tracker saved successfully!');
+        const updatedOrders = res.data.data || [];
+        setBuyerOrders(updatedOrders);
+        setTrackerRows(buildTrackerRows(updatedOrders, products, pouchSummary));
+        setIsTrackerDirty(false);
+        const updatedSelected = new Set(selectedBuyerOrderIds);
+        updatedOrders.forEach((bo) => {
+          if (!selectedBuyerOrderIds.has(bo._id)) {
+            updatedSelected.add(bo._id);
+          }
+        });
+        setSelectedBuyerOrderIds(updatedSelected);
+        runMrpCalculation(selectedBatchIds, updatedSelected);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Failed to save PO Pouch Tracker');
+    } finally {
+      setTrackerSaving(false);
+    }
+  };
+
+  const computedTrackerRows = React.useMemo(() => {
+    const poolRunning = {};
+    const currentMonthIdx = new Date().getMonth();
+
+    const getBasePoolStock = (info, row) => {
+      if (info.pouchType === 'universal') {
+        const uPool = (pouchSummary?.universalPools || []).find(
+          (up) => up.poolKey === info.poolKey || up.packSize === info.packSize
+        );
+        if (uPool && uPool.currentBalance !== undefined) return uPool.currentBalance;
+        if (uPool && uPool.remain !== undefined) return uPool.remain;
+      }
+      const pName = (row.productName || '').trim().toLowerCase();
+      const bName = (row.buyerName || '').trim().toLowerCase();
+      const prod = (pouchSummary?.products || []).find(
+        (p) => p.name?.trim().toLowerCase() === pName && (!bName || p.buyer?.trim().toLowerCase() === bName)
+      ) || (products || []).find(
+        (p) => p.name?.trim().toLowerCase() === pName && (!bName || p.buyer?.trim().toLowerCase() === bName)
+      ) || (products || []).find(
+        (p) => p.name?.trim().toLowerCase() === pName
+      );
+
+      if (prod) {
+        if (prod.currentBalance !== undefined) return prod.currentBalance;
+        if (prod.remain !== undefined) return prod.remain;
+        return prod.pouches?.[currentMonthIdx]?.remain ?? prod.pouches?.[currentMonthIdx]?.stock ?? 0;
+      }
+      return Number(row.pouchStock) || 0;
+    };
+
+    return trackerRows.map((row) => {
+      const info = getPouchPoolKey(row);
+      const poolKey = info.poolKey;
+
+      if (!(poolKey in poolRunning)) {
+        const dbStock = getBasePoolStock(info, row);
+        const initial = (row.customStock !== undefined && row.customStock !== null)
+          ? Number(row.customStock)
+          : dbStock;
+        poolRunning[poolKey] = initial;
+      }
+
+      const availableStock = poolRunning[poolKey];
+      const req = Number(row.targetPouches) || 0;
+      const due = availableStock - req;
+
+      // Update pool running balance for subsequent rows with this poolKey
+      poolRunning[poolKey] = due;
+
+      return {
+        ...row,
+        pouchType: info.pouchType,
+        packSize: info.packSize,
+        pouchLabel: info.label,
+        poolKey,
+        availablePouchStock: availableStock,
+        dueBalance: due,
+        isShortfall: due < 0
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackerRows, pouchSummary, products]);
+
+  const filteredTrackerRows = computedTrackerRows.filter((r) => {
+    if (!trackerSearch.trim()) return true;
+    const q = trackerSearch.toLowerCase();
+    return (
+      (r.orderNumber && r.orderNumber.toLowerCase().includes(q)) ||
+      (r.buyerName && r.buyerName.toLowerCase().includes(q)) ||
+      (r.productName && r.productName.toLowerCase().includes(q)) ||
+      (r.dueArrivalDate && r.dueArrivalDate.toLowerCase().includes(q)) ||
+      (r.pouchLabel && r.pouchLabel.toLowerCase().includes(q))
+    );
+  });
+
+  const handleExportPouchTrackerExcel = async () => {
+    try {
+      setTrackerExporting(true);
+      const response = await fetch(`${INVENTORY_MRP_URL}/buyer-orders/export-pouch-tracker`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: filteredTrackerRows
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PO Pouch Tracker Excel file');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateTag = new Date().toISOString().split('T')[0];
+      a.download = `PO_Pouch_Tracker_${dateTag}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('PO Pouch Tracker exported as Excel successfully!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to export PO Pouch Tracker to Excel');
+    } finally {
+      setTrackerExporting(false);
+    }
+  };
+
+  const totalTrackerPouchesRequired = filteredTrackerRows.reduce(
+    (sum, r) => sum + (Number(r.targetPouches) || 0),
+    0
+  );
+  const totalTrackerAvailableStock = filteredTrackerRows.reduce(
+    (sum, r) => sum + (Number(r.availablePouchStock) || 0),
+    0
+  );
+  const totalTrackerNetDue = filteredTrackerRows.reduce(
+    (sum, r) => sum + (Number(r.dueBalance) || 0),
+    0
+  );
 
   // ========================================================
   // SECTION 2: PLANNED PRODUCTION BATCHES HANDLERS
@@ -1323,6 +1688,332 @@ const PurchasePlanner = () => {
             })}
           </div>
         )}
+      </div>
+
+      {/* ======================================================== */}
+      {/* SECTION 1B: PO POUCH TRACKER TABLE (FOR MASTER BUYER ORDERS) */}
+      {/* ======================================================== */}
+      <div className="mb-10 bg-secondary/10 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
+        {/* Header Toolbar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <PackageCheck className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-bold text-white">PO Pouch Tracker</h2>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/10 text-gray-300 font-mono">
+                {filteredTrackerRows.length} item{filteredTrackerRows.length !== 1 ? 's' : ''}
+              </span>
+              {isTrackerDirty && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full animate-pulse">
+                  ● Unsaved Changes
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Live editable tracking for Master Buyer Orders &bull; Edit inline, add or delete rows, and sync with MRP matrix
+            </p>
+          </div>
+
+          {/* Actions Toolbar */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Filter PO, Buyer, Product..."
+                value={trackerSearch}
+                onChange={(e) => setTrackerSearch(e.target.value)}
+                className="bg-black/50 border border-white/15 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-primary w-48 sm:w-56"
+              />
+              {trackerSearch && (
+                <button
+                  type="button"
+                  onClick={() => setTrackerSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSyncPouchStockFromDb}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs font-semibold transition-all"
+              title="Fetch latest pouch closing balances directly from database pouch reconciliation ledger"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Sync DB Stock
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddTrackerRow}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 text-xs font-semibold transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Row
+            </button>
+
+            {isTrackerDirty && (
+              <button
+                type="button"
+                onClick={handleResetTracker}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/15 text-xs font-medium transition-all"
+                title="Discard unsaved edits and reload from database"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSaveTracker}
+              disabled={trackerSaving}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-lg transition-all ${
+                isTrackerDirty
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
+                  : 'bg-white/10 hover:bg-white/15 text-white border border-white/20'
+              } disabled:opacity-50`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              {trackerSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportPouchTrackerExcel}
+              disabled={trackerExporting || trackerRows.length === 0}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 text-black font-semibold hover:bg-cyan-400 disabled:opacity-40 text-xs shadow-lg shadow-cyan-500/20 transition-all"
+              title="Download PO Pouch Tracker Excel file matching PO_Pouch_Tracker.xlsx"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {trackerExporting ? 'Exporting...' : 'Export Excel'}
+            </button>
+          </div>
+        </div>
+
+        {/* Datalists for Autocomplete */}
+        <datalist id="tracker-buyers-list">
+          {allKnownBuyers.map((b) => (
+            <option key={b._id || b.name} value={b.name} />
+          ))}
+        </datalist>
+        <datalist id="tracker-products-list">
+          {uniqueProductOptions.map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+
+        {/* Tracker Table */}
+        <div className="bg-black/50 border border-white/10 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-white/5 border-b border-white/10 text-gray-400 font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-3 w-12 text-center font-mono">S No.</th>
+                  <th className="py-3 px-3 w-32">PO No.</th>
+                  <th className="py-3 px-3 w-36">Buyer Name</th>
+                  <th className="py-3 px-3 min-w-[170px]">Product Name</th>
+                  <th className="py-3 px-3 w-36">Packaging</th>
+                  <th className="py-3 px-3 w-32 text-right">Pouches Req.</th>
+                  <th className="py-3 px-3 w-32 text-right">Pouch Stock</th>
+                  <th className="py-3 px-3 w-28 text-center">Due / Balance</th>
+                  <th className="py-3 px-3 w-36">Due &amp; Arrival Date</th>
+                  <th className="py-3 px-2 w-12 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filteredTrackerRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-gray-500">
+                      {trackerSearch
+                        ? 'No matching rows found. Clear search to view all.'
+                        : 'No PO items tracked yet. Click "+ Add Row" or add Master Buyer Orders above.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredTrackerRows.map((row, idx) => {
+                    const req = Number(row.targetPouches) || 0;
+                    const available = Number(row.availablePouchStock !== undefined ? row.availablePouchStock : row.pouchStock) || 0;
+                    const due = Number(row.dueBalance !== undefined ? row.dueBalance : (available - req));
+                    const isDeficit = due < 0;
+
+                    return (
+                      <tr key={row.rowKey} className="hover:bg-white/[0.03] transition-colors">
+                        {/* S No. */}
+                        <td className="py-2.5 px-3 text-center font-mono text-gray-500 font-medium">
+                          {idx + 1}
+                        </td>
+
+                        {/* PO No. */}
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="text"
+                            placeholder="e.g. BO-1001"
+                            value={row.orderNumber}
+                            onChange={(e) => handleTrackerCellChange(row.rowKey, 'orderNumber', e.target.value)}
+                            className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-primary focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* Buyer Name */}
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="text"
+                            list="tracker-buyers-list"
+                            placeholder="Buyer Name"
+                            value={row.buyerName}
+                            onChange={(e) => handleTrackerCellChange(row.rowKey, 'buyerName', e.target.value)}
+                            className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* Product Name */}
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="text"
+                            list="tracker-products-list"
+                            placeholder="Product Name"
+                            value={row.productName}
+                            onChange={(e) => handleTrackerCellChange(row.rowKey, 'productName', e.target.value)}
+                            className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* Packaging / Pouch Type */}
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={row.pouchType || 'exclusive'}
+                              onChange={(e) => handleTrackerCellChange(row.rowKey, 'pouchType', e.target.value)}
+                              className={`rounded-lg px-2 py-1 text-[11px] font-semibold focus:outline-none border ${
+                                row.pouchType === 'universal'
+                                  ? 'bg-cyan-950/50 text-cyan-300 border-cyan-500/40'
+                                  : 'bg-black/60 text-zinc-300 border-white/10'
+                              }`}
+                            >
+                              <option value="exclusive">Exclusive</option>
+                              <option value="universal">Universal</option>
+                            </select>
+                            {row.pouchType === 'universal' && (
+                              <input
+                                type="text"
+                                placeholder="140g"
+                                value={row.packSize || ''}
+                                onChange={(e) => handleTrackerCellChange(row.rowKey, 'packSize', e.target.value)}
+                                className="w-14 bg-black/80 border border-cyan-500/40 text-cyan-300 rounded-lg px-1.5 py-1 text-[11px] font-mono text-center focus:outline-none focus:border-cyan-400"
+                                title="Pack size shared across universal pouch products"
+                              />
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Pouches Required */}
+                        <td className="py-2.5 px-3 text-right">
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder="0"
+                            value={row.targetPouches}
+                            onChange={(e) => handleTrackerCellChange(row.rowKey, 'targetPouches', e.target.value)}
+                            className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white text-right focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* Pouch Stock Available */}
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <input
+                              type="number"
+                              step="1"
+                              placeholder="0"
+                              value={available}
+                              onChange={(e) => handleTrackerCellChange(row.rowKey, 'pouchStock', e.target.value)}
+                              className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-cyan-300 text-right focus:outline-none transition-colors"
+                              title="Pouch stock available for this order (progressively tracked down order sequence)"
+                            />
+                            <span className="text-[10px] font-mono text-zinc-500">
+                              {row.pouchType === 'universal' ? 'Universal pool' : 'Product stock'}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Due / Balance */}
+                        <td className="py-2.5 px-3 text-center">
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-lg font-mono font-bold text-xs shadow-sm ${
+                              isDeficit
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            }`}
+                          >
+                            {due > 0 ? `+${due.toLocaleString()}` : due.toLocaleString()}
+                          </span>
+                        </td>
+
+                        {/* Due & Arrival Date */}
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="text"
+                            placeholder="YYYY-MM-DD"
+                            value={row.dueArrivalDate}
+                            onChange={(e) => handleTrackerCellChange(row.rowKey, 'dueArrivalDate', e.target.value)}
+                            className="w-full bg-black/60 border border-white/10 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none transition-colors"
+                          />
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-2.5 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTrackerRow(row.rowKey)}
+                            title="Delete Row"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              {filteredTrackerRows.length > 0 && (
+                <tfoot className="bg-white/5 border-t border-white/10 text-xs font-semibold">
+                  <tr>
+                    <td className="py-3 px-3 text-center text-gray-400 font-mono">Total</td>
+                    <td className="py-3 px-3 text-gray-400 font-mono" colSpan={4}>
+                      {filteredTrackerRows.length} PO Product Item{filteredTrackerRows.length !== 1 ? 's' : ''}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono font-bold text-white">
+                      {totalTrackerPouchesRequired.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono font-bold text-cyan-300">
+                      {totalTrackerAvailableStock.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono">
+                      <span
+                        className={`px-2 py-0.5 rounded font-bold text-xs ${
+                          totalTrackerNetDue < 0
+                            ? 'text-rose-400'
+                            : 'text-emerald-400'
+                        }`}
+                      >
+                        {totalTrackerNetDue > 0 ? `+${totalTrackerNetDue.toLocaleString()}` : totalTrackerNetDue.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-mono text-xs text-gray-400" colSpan={2}>
+                      Progressive allocation active
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* ======================================================== */}

@@ -234,8 +234,8 @@ const Index = () => {
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Left Column: Product Directory */}
-                <div className="lg:col-span-5 bg-[#0d0d0d]/90 border border-white/10 rounded-2xl p-5 shadow-xl backdrop-blur-xl relative">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="lg:col-span-5 min-w-0 bg-[#0d0d0d]/90 border border-white/10 rounded-2xl p-4 sm:p-5 shadow-xl backdrop-blur-xl relative">
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                     <h2 className="text-base font-bold text-white flex items-center gap-2">
                       <span>Product Directory</span>
                       <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-400">
@@ -360,11 +360,11 @@ const Index = () => {
                 </div>
 
                 {/* Right Column: Production Overview Matrix */}
-                <div className="lg:col-span-7 bg-[#0d0d0d]/90 border border-white/10 rounded-2xl p-5 shadow-xl backdrop-blur-xl space-y-4">
+                <div className="lg:col-span-7 min-w-0 bg-[#0d0d0d]/90 border border-white/10 rounded-2xl p-4 sm:p-5 shadow-xl backdrop-blur-xl space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/5 pb-4">
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-base font-bold text-white">Production Cross-Section Overview</h2>
-                      <div className="text-xs font-mono text-primary mt-1">
+                      <div className="text-xs font-mono text-primary mt-1 break-words">
                         {info.product?.name ? (
                           <span>
                             Selected:{" "}
@@ -381,25 +381,25 @@ const Index = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 bg-black border border-white/10 px-2.5 py-1.5 rounded-xl">
-                        <span className="text-[12px] font-mono text-zinc-400 uppercase">From:</span>
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                      <div className="flex flex-1 sm:flex-initial items-center justify-between sm:justify-start gap-1.5 bg-black border border-white/10 px-2.5 py-1.5 rounded-xl min-w-[140px]">
+                        <span className="text-[11px] sm:text-[12px] font-mono text-zinc-400 uppercase shrink-0">From:</span>
                         <input
                           type="date"
                           name="start"
                           value={info.start}
                           onChange={(e) => inputHandler(e)}
-                          className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none"
+                          className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none w-full min-w-0"
                         />
                       </div>
-                      <div className="flex items-center gap-1.5 bg-black border border-white/10 px-2.5 py-1.5 rounded-xl">
-                        <span className="text-[12px] font-mono text-zinc-400 uppercase">To:</span>
+                      <div className="flex flex-1 sm:flex-initial items-center justify-between sm:justify-start gap-1.5 bg-black border border-white/10 px-2.5 py-1.5 rounded-xl min-w-[140px]">
+                        <span className="text-[11px] sm:text-[12px] font-mono text-zinc-400 uppercase shrink-0">To:</span>
                         <input
                           type="date"
                           name="end"
                           value={info.end}
                           onChange={(e) => inputHandler(e)}
-                          className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none"
+                          className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none w-full min-w-0"
                         />
                       </div>
                     </div>

@@ -143,7 +143,7 @@ const Inventory = () => {
             </div>
 
             {/* Quick Batch Search input */}
-            <div className="relative min-w-[280px]">
+            <div className="relative w-full sm:w-auto sm:min-w-[280px]">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 w-4 h-4" />
               <Input
                 type="text"
@@ -156,10 +156,10 @@ const Inventory = () => {
 
           {/* Filter Bar */}
           <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-[#0d0d0d]/80 border border-white/10 backdrop-blur-xl">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-zinc-400 uppercase">Buyer:</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-mono text-zinc-400 uppercase shrink-0">Buyer:</span>
               <select
-                className="px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                className="flex-1 sm:flex-initial px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary min-w-0"
                 onChange={(e) => {
                   setInfo((prevData) => ({
                     ...prevData,
@@ -179,11 +179,11 @@ const Inventory = () => {
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-zinc-400 uppercase">Product:</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-mono text-zinc-400 uppercase shrink-0">Product:</span>
               <select
                 name="product"
-                className="px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary"
+                className="flex-1 sm:flex-initial px-3 py-1.5 bg-black border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-primary min-w-0"
                 onClick={(e) => inputHandler(e)}
               >
                 <option value="">All Products</option>
@@ -197,30 +197,30 @@ const Inventory = () => {
               </select>
             </div>
 
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1 rounded-xl">
-              <span className="text-xs text-zinc-400 font-mono uppercase">From:</span>
+            <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1 rounded-xl min-w-[140px]">
+              <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">From:</span>
               <Input
                 type="date"
                 name="start"
                 onChange={(e) => inputHandler(e)}
-                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
               />
             </div>
 
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1 rounded-xl">
-              <span className="text-xs text-zinc-400 font-mono uppercase">To:</span>
+            <div className="flex flex-1 sm:flex-initial items-center gap-2 bg-white/5 border border-white/10 px-3 py-1 rounded-xl min-w-[140px]">
+              <span className="text-xs text-zinc-400 font-mono uppercase shrink-0">To:</span>
               <Input
                 type="date"
                 name="end"
                 onChange={(e) => inputHandler(e)}
-                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0"
+                className="bg-transparent border-0 text-white text-xs font-mono focus:outline-none cursor-pointer h-7 p-0 w-full min-w-0"
               />
             </div>
 
             <button
               type="button"
               onClick={getDateData}
-              className="px-5 py-2 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer flex items-center gap-1.5 ml-auto"
+              className="w-full sm:w-auto justify-center px-5 py-2 rounded-xl bg-primary hover:bg-amber-400 text-black font-bold text-xs shadow-lg shadow-primary/20 transition-all cursor-pointer flex items-center gap-1.5 sm:ml-auto"
             >
               <Filter className="w-3.5 h-3.5" />
               Filter Batches
