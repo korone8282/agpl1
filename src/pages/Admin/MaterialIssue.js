@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Trash2,
   Scale,
+  Recycle,
   Search,
   X,
   ThermometerSnowflake,
@@ -62,6 +63,26 @@ const getMaterialVariants = (mat) => {
   return arr;
 };
 
+const ING_HISTORY_STORAGE_KEY = 'agpl_recipe_ing_history_v1';
+const MAX_ING_HISTORY = 5;
+
+const loadStoredIngHistory = () => {
+  try {
+    const raw = localStorage.getItem(ING_HISTORY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveStoredIngHistory = (mapObj) => {
+  try {
+    localStorage.setItem(ING_HISTORY_STORAGE_KEY, JSON.stringify(mapObj));
+  } catch {
+    // ignore storage errors
+  }
+};
+
 const MaterialIssue = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
@@ -83,6 +104,7 @@ const MaterialIssue = () => {
   const [issueDate, setIssueDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [issueItems, setIssueItems] = useState([]);
   const [substitutedRmByRow, setSubstitutedRmByRow] = useState({});
+  const [ingHistoryMap, setIngHistoryMap] = useState(() => loadStoredIngHistory());
   const [swapModalRowIdx, setSwapModalRowIdx] = useState(null);
   const [swapPopoverPos, setSwapPopoverPos] = useState({ top: 100, left: 100, width: 310 });
   const [swapSearch, setSwapSearch] = useState('');
@@ -226,7 +248,9 @@ const MaterialIssue = () => {
     basis = 'BATCH',
     rYieldVal = 0,
     gYieldVal = 0,
-    subMap = {}
+    subMap = {},
+    sourceRecipeId = null,
+    sourceIngIdx = null
   ) => {
     let unitMultiplier = 1;
     const ingUnitLower = String(ing.unit || 'kg').trim().toLowerCase();
@@ -296,6 +320,8 @@ const MaterialIssue = () => {
 
     return {
       rowKey,
+      sourceRecipeId,
+      sourceIngIdx,
       rawMaterialId: matchedRm ? matchedRm._id : ing.rawMaterial,
       materialName: matchedRm ? matchedRm.name : ing.materialName,
       originalMaterialName: defaultMatchedRm ? defaultMatchedRm.name : ing.materialName,
@@ -356,7 +382,9 @@ const MaterialIssue = () => {
             basis,
             effectiveRecipeYield,
             gYieldVal,
-            activeSubMap
+            activeSubMap,
+            rec._id,
+            ingIdx
           )
         );
       });
@@ -378,7 +406,9 @@ const MaterialIssue = () => {
               basis,
               effectiveRecipeYield,
               gYieldVal,
-              activeSubMap
+              activeSubMap,
+              recipe._id,
+              ingIdx
             )
           );
         });
@@ -421,26 +451,60 @@ const MaterialIssue = () => {
     return { top, left, width: popWidth };
   };
 
-  const openIngredientSwapModal = (idx, e) => {
-    if (e) e.stopPropagation();
-    if (swapModalRowIdx === idx) {
-      setSwapModalRowIdx(null);
-      return;
+  const getSlotKey = (sourceRecipeId, sourceIngIdx, rowKey) => {
+    if (sourceRecipeId && sourceIngIdx !== null && sourceIngIdx !== undefined) {
+      return `${sourceRecipeId}_${sourceIngIdx}`;
     }
-    if (e?.currentTarget) {
-      setSwapPopoverPos(computePopoverPosition(e.currentTarget));
-    }
-    setSwapModalRowIdx(idx);
-    setSwapSearch('');
+    return rowKey || 'default_slot';
   };
 
-  const handleSelectSubstituteIngredient = (newRm) => {
-    if (swapModalRowIdx === null || !issueItems[swapModalRowIdx] || !newRm) return;
-    const targetRow = issueItems[swapModalRowIdx];
-    const nextSubMap = {
-      ...substitutedRmByRow,
-      [targetRow.rowKey]: newRm
+  const getSlotHistory = (sourceRecipeId, sourceIngIdx, rowKey, ingObj, mapOverride) => {
+    const activeMap = mapOverride || ingHistoryMap;
+    const slotKey = getSlotKey(sourceRecipeId, sourceIngIdx, rowKey);
+    const localList = Array.isArray(activeMap[slotKey]) ? activeMap[slotKey] : [];
+    const dbList = Array.isArray(ingObj?.ingredientHistory) ? ingObj.ingredientHistory : [];
+
+    const merged = [];
+    const seen = new Set();
+
+    const pushUnique = (entry) => {
+      if (!entry || !entry.materialName) return;
+      const normName = String(entry.materialName).trim().toLowerCase();
+      if (!normName || seen.has(normName)) return;
+      seen.add(normName);
+      merged.push({
+        rawMaterial: entry.rawMaterial || entry.rawMaterialId || null,
+        materialName: String(entry.materialName).trim(),
+        materialCode: entry.materialCode || '',
+        storageType: entry.storageType || 'Ambient'
+      });
     };
+
+    // Prioritize local history (which may include unconfirmed session swaps), then DB history, then current recipe ingredient
+    localList.forEach(pushUnique);
+    dbList.forEach(pushUnique);
+    if (ingObj && ingObj.materialName) {
+      pushUnique({
+        rawMaterial: ingObj.rawMaterial || ingObj.rawMaterialId || null,
+        materialName: ingObj.materialName,
+        materialCode: ingObj.materialCode || '',
+        storageType: ingObj.storageType || 'Ambient'
+      });
+    }
+
+    return merged.slice(0, MAX_ING_HISTORY);
+  };
+
+  const applyRmToIssueRow = (rowIdx, newRm, nextSubMapOverride) => {
+    if (rowIdx === null || rowIdx === undefined || !issueItems[rowIdx] || !newRm) return;
+    const targetRow = issueItems[rowIdx];
+    const nextSubMap =
+      nextSubMapOverride !== undefined
+        ? nextSubMapOverride
+        : {
+            ...substitutedRmByRow,
+            [targetRow.rowKey]: newRm
+          };
     setSubstitutedRmByRow(nextSubMap);
 
     const stockUnit = newRm.baseUnit || 'kg';
@@ -454,11 +518,13 @@ const MaterialIssue = () => {
         : null;
 
     const updated = [...issueItems];
-    updated[swapModalRowIdx] = {
+    updated[rowIdx] = {
       ...targetRow,
       rawMaterialId: newRm._id,
       materialName: newRm.name,
-      isSubstituted: newRm.name.trim().toLowerCase() !== (targetRow.originalMaterialName || '').trim().toLowerCase(),
+      isSubstituted:
+        newRm.name.trim().toLowerCase() !==
+        (targetRow.originalMaterialName || '').trim().toLowerCase(),
       availableStock: newRm.currentStock || 0,
       unit: stockUnit,
       stockUnit,
@@ -479,9 +545,134 @@ const MaterialIssue = () => {
     });
 
     setIssueItems(updated);
+  };
+
+  const openIngredientSwapModal = (idx, e) => {
+    if (e) e.stopPropagation();
+    if (swapModalRowIdx === idx) {
+      setSwapModalRowIdx(null);
+      return;
+    }
+    if (e?.currentTarget) {
+      setSwapPopoverPos(computePopoverPosition(e.currentTarget));
+    }
+    setSwapModalRowIdx(idx);
+    setSwapSearch('');
+  };
+
+  const handleSelectSubstituteIngredient = (newRm) => {
+    if (swapModalRowIdx === null || !issueItems[swapModalRowIdx] || !newRm) return;
+    const targetRow = issueItems[swapModalRowIdx];
+
+    // Find source recipe ingredient to merge existing history
+    const targetRecipe =
+      recipes.find((r) => String(r._id) === String(targetRow.sourceRecipeId)) ||
+      (activeRecipe && String(activeRecipe._id) === String(targetRow.sourceRecipeId)
+        ? activeRecipe
+        : null) ||
+      activeOrder?.items?.find(
+        (it) => it.recipe && String(it.recipe._id) === String(targetRow.sourceRecipeId)
+      )?.recipe;
+    const sourceIng = targetRecipe?.ingredients?.[targetRow.sourceIngIdx] || {
+      rawMaterial: targetRow.rawMaterialId,
+      materialName: targetRow.originalMaterialName || targetRow.materialName
+    };
+
+    const existingHistory = getSlotHistory(
+      targetRow.sourceRecipeId,
+      targetRow.sourceIngIdx,
+      targetRow.rowKey,
+      sourceIng
+    );
+
+    const newEntry = {
+      rawMaterial: newRm._id,
+      materialName: newRm.name,
+      materialCode: newRm.code || '',
+      storageType: newRm.storageType || 'Ambient'
+    };
+    const currentEntry = {
+      rawMaterial: targetRow.rawMaterialId,
+      materialName: targetRow.materialName,
+      materialCode: '',
+      storageType: 'Ambient'
+    };
+
+    // Place newRm at index 0, followed by current ingredient and existing history (deduplicated, max 5)
+    const combined = [newEntry, currentEntry, ...existingHistory];
+    const deduped = [];
+    const seen = new Set();
+    combined.forEach((entry) => {
+      if (!entry || !entry.materialName) return;
+      const key = entry.materialName.trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      deduped.push(entry);
+    });
+    const nextSlotHistory = deduped.slice(0, MAX_ING_HISTORY);
+
+    const slotKey = getSlotKey(targetRow.sourceRecipeId, targetRow.sourceIngIdx, targetRow.rowKey);
+    const nextHistoryMap = {
+      ...ingHistoryMap,
+      [slotKey]: nextSlotHistory
+    };
+    setIngHistoryMap(nextHistoryMap);
+    saveStoredIngHistory(nextHistoryMap);
+
+    applyRmToIssueRow(swapModalRowIdx, newRm);
     setSwapModalRowIdx(null);
     setSwapSearch('');
-    toast.success(`Switched issue ingredient to "${newRm.name}" (recipe master unchanged)`);
+  };
+
+  const handleRecycleIngredient = (idx, e) => {
+    if (e) e.stopPropagation();
+    const targetRow = issueItems[idx];
+    if (!targetRow) return;
+
+    const targetRecipe =
+      recipes.find((r) => String(r._id) === String(targetRow.sourceRecipeId)) ||
+      (activeRecipe && String(activeRecipe._id) === String(targetRow.sourceRecipeId)
+        ? activeRecipe
+        : null) ||
+      activeOrder?.items?.find(
+        (it) => it.recipe && String(it.recipe._id) === String(targetRow.sourceRecipeId)
+      )?.recipe;
+    const sourceIng = targetRecipe?.ingredients?.[targetRow.sourceIngIdx] || {
+      rawMaterial: targetRow.rawMaterialId,
+      materialName: targetRow.originalMaterialName || targetRow.materialName
+    };
+
+    const history = getSlotHistory(
+      targetRow.sourceRecipeId,
+      targetRow.sourceIngIdx,
+      targetRow.rowKey,
+      sourceIng
+    );
+    if (history.length <= 1) return;
+
+    const currNameLower = (targetRow.materialName || '').trim().toLowerCase();
+    const currIdx = history.findIndex(
+      (h) => (h.materialName || '').trim().toLowerCase() === currNameLower
+    );
+    const nextIdx = currIdx >= 0 ? (currIdx + 1) % history.length : 0;
+    const nextEntry = history[nextIdx];
+    if (!nextEntry) return;
+
+    const matchedRm =
+      rawMaterials.find(
+        (rm) =>
+          (nextEntry.rawMaterial && String(rm._id) === String(nextEntry.rawMaterial)) ||
+          rm.name.trim().toLowerCase() === nextEntry.materialName.trim().toLowerCase()
+      ) || {
+        _id: nextEntry.rawMaterial,
+        name: nextEntry.materialName,
+        code: nextEntry.materialCode || '',
+        storageType: nextEntry.storageType || 'Ambient',
+        baseUnit: 'kg',
+        currentStock: 0
+      };
+
+    applyRmToIssueRow(idx, matchedRm);
   };
 
   const handleVariantChange = (idx, newVariantVal) => {
@@ -623,6 +814,114 @@ const MaterialIssue = () => {
 
       const res = await apiConnector(`${INVENTORY_MRP_URL}/material-issues`, 'POST', payload);
       if (res.data?.success) {
+        // Persist any changed ingredients (and their up-to-5 history) into the original Recipe(s) in DB
+        // ONLY now that Confirm Issue & Deduct Stock has succeeded
+        const changesByRecipeId = new Map();
+        const updatedHistoryMap = { ...ingHistoryMap };
+
+        issueItems.forEach((it) => {
+          if (
+            !it.sourceRecipeId ||
+            it.sourceIngIdx === null ||
+            it.sourceIngIdx === undefined
+          ) {
+            return;
+          }
+          const recIdStr = String(it.sourceRecipeId);
+          const targetRecipe =
+            recipes.find((r) => String(r._id) === recIdStr) ||
+            (activeRecipe && String(activeRecipe._id) === recIdStr ? activeRecipe : null) ||
+            activeOrder?.items?.find(
+              (ordIt) => ordIt.recipe && String(ordIt.recipe._id) === recIdStr
+            )?.recipe;
+          const sourceIng = targetRecipe?.ingredients?.[it.sourceIngIdx];
+          if (!sourceIng) return;
+
+          const existingHist = getSlotHistory(
+            it.sourceRecipeId,
+            it.sourceIngIdx,
+            it.rowKey,
+            sourceIng,
+            updatedHistoryMap
+          );
+          const wasChangedThisIssue =
+            (it.materialName || '').trim().toLowerCase() !==
+            (it.originalMaterialName || '').trim().toLowerCase();
+
+          if (wasChangedThisIssue || existingHist.length > 1) {
+            const matchedRm = rawMaterials.find(
+              (rm) =>
+                (it.rawMaterialId && String(rm._id) === String(it.rawMaterialId)) ||
+                rm.name.trim().toLowerCase() === (it.materialName || '').trim().toLowerCase()
+            );
+            const activeEntry = {
+              rawMaterial: matchedRm?._id || it.rawMaterialId || null,
+              materialName: matchedRm?.name || it.materialName,
+              materialCode: matchedRm?.code || '',
+              storageType: matchedRm?.storageType || sourceIng.storageType || 'Ambient'
+            };
+
+            // Keep active confirmed ingredient at index 0 of history (up to 5 max)
+            const combined = [activeEntry, ...existingHist];
+            const deduped = [];
+            const seen = new Set();
+            combined.forEach((entry) => {
+              if (!entry || !entry.materialName) return;
+              const k = entry.materialName.trim().toLowerCase();
+              if (!k || seen.has(k)) return;
+              seen.add(k);
+              deduped.push(entry);
+            });
+            const finalHist = deduped.slice(0, MAX_ING_HISTORY);
+            const slotKey = getSlotKey(it.sourceRecipeId, it.sourceIngIdx, it.rowKey);
+            updatedHistoryMap[slotKey] = finalHist;
+
+            if (wasChangedThisIssue) {
+              if (!changesByRecipeId.has(recIdStr)) {
+                changesByRecipeId.set(recIdStr, {
+                  recipe: targetRecipe,
+                  slotUpdates: new Map()
+                });
+              }
+              changesByRecipeId.get(recIdStr).slotUpdates.set(it.sourceIngIdx, {
+                activeEntry,
+                finalHist
+              });
+            }
+          }
+        });
+
+        setIngHistoryMap(updatedHistoryMap);
+        saveStoredIngHistory(updatedHistoryMap);
+
+        if (changesByRecipeId.size > 0) {
+          await Promise.all(
+            Array.from(changesByRecipeId.entries()).map(async ([recIdStr, info]) => {
+              const { recipe, slotUpdates } = info;
+              if (!recipe || !Array.isArray(recipe.ingredients)) return;
+              const updatedIngredients = recipe.ingredients.map((ing, i) => {
+                const slotUpd = slotUpdates.get(i);
+                if (!slotUpd) return ing;
+                return {
+                  ...ing,
+                  rawMaterial: slotUpd.activeEntry.rawMaterial,
+                  materialName: slotUpd.activeEntry.materialName,
+                  materialCode: slotUpd.activeEntry.materialCode,
+                  storageType: slotUpd.activeEntry.storageType,
+                  ingredientHistory: slotUpd.finalHist
+                };
+              });
+              try {
+                await apiConnector(`${INVENTORY_MRP_URL}/recipes/${recIdStr}`, 'PUT', {
+                  ingredients: updatedIngredients
+                });
+              } catch (recErr) {
+                console.error('Failed to persist recipe ingredient update on confirm issue:', recErr);
+              }
+            })
+          );
+        }
+
         toast.success(
           calcBasis === 'YIELD'
             ? `Materials successfully issued for ${format3Decimals(gYNum)} kg yield (${bCount} batch eq.)!`
@@ -633,6 +932,7 @@ const MaterialIssue = () => {
         setActiveRecipe(null);
         setActiveOrder(null);
         setIssueItems([]);
+        setSubstitutedRmByRow({});
         setNotes('');
         setNoOfBatches('1');
         setRecipeYield('');
@@ -1040,22 +1340,70 @@ const MaterialIssue = () => {
                         <tr key={item.rowKey || idx} className="hover:bg-white/5">
                           <td className="py-3 px-3 text-center font-mono text-gray-500">{idx + 1}</td>
                           <td className="py-3 px-4 font-medium text-white">
-                            <div className="flex items-center gap-1.5">
-                              <span>{item.materialName}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => openIngredientSwapModal(idx, e)}
-                                title="Change / substitute ingredient from Live Stock Ledger (does not change master recipe)"
-                                className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
-                              >
-                                <Scale className="w-3 h-3" />
-                              </button>
-                            </div>
-                            {item.isSubstituted && item.originalMaterialName && (
-                              <div className="text-[10px] text-amber-400/90 font-normal mt-0.5">
-                                Substituted for: <span className="font-mono">{item.originalMaterialName}</span>
-                              </div>
-                            )}
+                            {(() => {
+                              const targetRecipe =
+                                recipes.find((r) => String(r._id) === String(item.sourceRecipeId)) ||
+                                (activeRecipe && String(activeRecipe._id) === String(item.sourceRecipeId)
+                                  ? activeRecipe
+                                  : null) ||
+                                activeOrder?.items?.find(
+                                  (ordIt) =>
+                                    ordIt.recipe && String(ordIt.recipe._id) === String(item.sourceRecipeId)
+                                )?.recipe;
+                              const sourceIng = targetRecipe?.ingredients?.[item.sourceIngIdx] || {
+                                rawMaterial: item.rawMaterialId,
+                                materialName: item.originalMaterialName || item.materialName
+                              };
+                              const slotHistory = getSlotHistory(
+                                item.sourceRecipeId,
+                                item.sourceIngIdx,
+                                item.rowKey,
+                                sourceIng
+                              );
+                              const hasChangedBefore = slotHistory.length > 1;
+                              const currIdx = slotHistory.findIndex(
+                                (h) =>
+                                  (h.materialName || '').trim().toLowerCase() ===
+                                  (item.materialName || '').trim().toLowerCase()
+                              );
+                              const nextIdx = currIdx >= 0 ? (currIdx + 1) % slotHistory.length : 0;
+                              const nextHistItem = slotHistory[nextIdx];
+
+                              return (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{item.materialName}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => openIngredientSwapModal(idx, e)}
+                                      title="Change ingredient from Live Stock Ledger (updates recipe on Confirm Issue)"
+                                      className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
+                                    >
+                                      <Scale className="w-3 h-3" />
+                                    </button>
+                                    {hasChangedBefore && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleRecycleIngredient(idx, e)}
+                                        title={`Revert / toggle previous ingredient${
+                                          nextHistItem ? `: ${nextHistItem.materialName}` : ''
+                                        } (History: ${slotHistory
+                                          .map((h) => h.materialName)
+                                          .join(' → ')})`}
+                                        className="p-1 rounded hover:bg-emerald-500/15 text-emerald-400 hover:text-emerald-300 transition-colors"
+                                      >
+                                        <Recycle className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  {item.isSubstituted && item.originalMaterialName && (
+                                    <div className="text-[10px] text-amber-400/90 font-normal mt-0.5">
+                                      Previous in recipe: <span className="font-mono">{item.originalMaterialName}</span> (updates on Confirm Issue)
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </td>
                           <td className="py-3 px-4 text-right font-mono text-gray-300">
                             {format3Decimals(item.theoreticalEdibleQty)} {recipeUnit}
@@ -1426,7 +1774,7 @@ const MaterialIssue = () => {
                   <span className="truncate">Swap: {issueItems[swapModalRowIdx].materialName}</span>
                 </h3>
                 <p className="text-[10px] text-gray-400 truncate mt-0.5">
-                  Recipe unchanged • Deducts selected stock
+                  Updates recipe on Confirm Issue &bull; Deducts selected stock
                 </p>
               </div>
               <button

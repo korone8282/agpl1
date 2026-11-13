@@ -614,7 +614,10 @@ exports.updateRecipe = async (req, res) => {
                         rawMaterial: rm ? rm._id : ing.rawMaterial,
                         lossFactor: Number(ing.lossFactor) || 1.0,
                         edibleQuantity: Number(ing.edibleQuantity) || 0,
-                        unit: 'kg'
+                        unit: 'kg',
+                        ingredientHistory: Array.isArray(ing.ingredientHistory)
+                            ? ing.ingredientHistory.slice(0, 5)
+                            : []
                     };
                 })
             );
@@ -2324,17 +2327,22 @@ exports.calculateMRP = async (req, res) => {
                             latestOrderDate: latestDate,
                             totalGrossRequired: 0,
                             ordersInvolved: [],
+                            recipeIdsInvolved: [],
                             earliestProductionDate: order.productionDate
                         });
                     }
 
                     const entry = reqMap.get(key);
                     entry.totalGrossRequired += grossRequired;
+                    if (recipe._id && !entry.recipeIdsInvolved.some(id => String(id) === String(recipe._id))) {
+                        entry.recipeIdsInvolved.push(String(recipe._id));
+                    }
                     entry.ordersInvolved.push({
                         orderId: order._id,
                         orderNumber: order.orderNumber,
                         productionDate: order.productionDate,
                         productName: item.productName,
+                        recipeId: recipe._id,
                         batches: batches,
                         grossRequired: parseFloat(grossRequired.toFixed(3))
                     });
@@ -2432,12 +2440,16 @@ exports.calculateMRP = async (req, res) => {
                             latestOrderDate: latestDate,
                             totalGrossRequired: 0,
                             ordersInvolved: [],
+                            recipeIdsInvolved: [],
                             earliestProductionDate: boDate
                         });
                     }
 
                     const entry = reqMap.get(key);
                     entry.totalGrossRequired += grossRequired;
+                    if (recipe._id && !entry.recipeIdsInvolved.some(id => String(id) === String(recipe._id))) {
+                        entry.recipeIdsInvolved.push(String(recipe._id));
+                    }
                     entry.ordersInvolved.push({
                         orderId: bo._id,
                         orderNumber: bo.orderNumber,
@@ -2445,6 +2457,7 @@ exports.calculateMRP = async (req, res) => {
                         productName: item.productName,
                         buyerName: bo.buyerName,
                         isBuyerOrder: true,
+                        recipeId: recipe._id,
                         batches: batches,
                         grossRequired: parseFloat(grossRequired.toFixed(3))
                     });

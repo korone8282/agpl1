@@ -25,12 +25,33 @@ import {
   Download,
   PackageCheck,
   Save,
-  RotateCcw
+  RotateCcw,
+  Scale,
+  ThermometerSnowflake,
+  Package
 } from 'lucide-react';
 import { apiConnector } from '../../redux/Utils/apiConnector';
 import { INVENTORY_MRP_URL, CATEGORIES_URL, PRODUCT_URL } from '../../redux/Utils/constants';
 import Loader from '../../components/Loader';
 import { toast } from 'react-toastify';
+
+const STANDARD_UNITS = ['kg', 'g', 'gm', 'l', 'ltr', 'ml', 'pcs'];
+
+const isNonStandardUnit = (unit) => {
+  if (!unit) return false;
+  return !STANDARD_UNITS.includes(String(unit).trim().toLowerCase());
+};
+
+const getMaterialVariants = (rm) => {
+  if (!rm) return [];
+  if (Array.isArray(rm.unitWeightVariants) && rm.unitWeightVariants.length > 0) {
+    return rm.unitWeightVariants.map(Number).filter((v) => !isNaN(v) && v > 0);
+  }
+  if (rm.unitWeightKg && Number(rm.unitWeightKg) > 0) {
+    return [Number(rm.unitWeightKg)];
+  }
+  return [];
+};
 
 const format3Decimals = (val) => {
   if (val === null || val === undefined || val === '') return '0';
@@ -78,12 +99,18 @@ const PurchasePlanner = () => {
   const [buyerOrders, setBuyerOrders] = useState([]);
   const [orders, setOrders] = useState([]);
   const [recipes, setRecipes] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   const [buyers, setBuyers] = useState([]);
   const [products, setProducts] = useState([]);
   const [mrpData, setMrpData] = useState([]);
   const [selectedMrpVariants, setSelectedMrpVariants] = useState({});
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
+
+  // Ingredient Swap Mini Popover (Live Material Requirement & Shortage Matrix)
+  const [swapMrpRow, setSwapMrpRow] = useState(null);
+  const [swapSearch, setSwapSearch] = useState('');
+  const [swapPopoverPos, setSwapPopoverPos] = useState({ top: 120, left: 120, width: 300 });
 
   // PO Pouch Tracker State (Master Buyer Orders)
   const [trackerRows, setTrackerRows] = useState([]);
@@ -271,14 +298,17 @@ const PurchasePlanner = () => {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const [buyerRes, orderRes, recRes, catRes, prodRes, pouchSumRes] = await Promise.all([
+      const [buyerRes, orderRes, recRes, rmRes, catRes, prodRes, pouchSumRes] = await Promise.all([
         apiConnector(`${INVENTORY_MRP_URL}/buyer-orders`, 'GET').catch(() => ({ data: { success: false, data: [] } })),
         apiConnector(`${INVENTORY_MRP_URL}/production-orders`, 'GET'),
         apiConnector(`${INVENTORY_MRP_URL}/recipes`, 'GET'),
+        apiConnector(`${INVENTORY_MRP_URL}/raw-materials`, 'GET').catch(() => ({ data: { success: false, data: [] } })),
         apiConnector(`${CATEGORIES_URL}/categories`, 'GET').catch(() => ({ data: { data: [] } })),
         apiConnector(`${PRODUCT_URL}/products`, 'GET').catch(() => ({ data: { data: [] } })),
         apiConnector(`${PRODUCT_URL}/pouch-summary`, 'GET').catch(() => ({ data: { success: false, products: [], universalPools: [] } }))
       ]);
+
+      if (rmRes?.data?.success) setRawMaterials(rmRes.data.data || []);
 
       const prods = prodRes?.data?.data || [];
       setProducts(prods);
@@ -343,6 +373,154 @@ const PurchasePlanner = () => {
     } catch (err) {
       console.error(err);
       toast.error('Failed to run MRP calculation');
+    } finally {
+      setCalculating(false);
+    }
+  };
+
+  const computePopoverPosition = (triggerEl) => {
+    if (!triggerEl || typeof window === 'undefined') {
+      return { top: 120, left: 120, width: 300 };
+    }
+    const rect = triggerEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const sideMargin = 14;
+    const topMargin = 72;
+    const bottomMargin = 56;
+    const popWidth = Math.min(310, vw - sideMargin * 2);
+    const popHeight = 330;
+
+    // Open right beside the icon; if not enough horizontal room, clamp within viewport
+    let left = rect.right + 10;
+    if (left + popWidth > vw - sideMargin) {
+      left = Math.max(sideMargin, Math.min(rect.left, vw - popWidth - sideMargin));
+    }
+
+    // Center vertically beside the clicked ingredient row (shifted slightly above),
+    // and keep a comfortable gap above the bottom edge of the screen
+    const iconCenterY = rect.top + rect.height / 2;
+    let top = Math.round(iconCenterY - popHeight * 0.55);
+    if (top + popHeight > vh - bottomMargin) {
+      top = Math.max(topMargin, vh - popHeight - bottomMargin);
+    }
+    if (top < topMargin) {
+      top = topMargin;
+    }
+
+    return { top, left, width: popWidth };
+  };
+
+  const openMrpIngredientSwapModal = (row, e) => {
+    if (e) e.stopPropagation();
+    if (swapMrpRow && swapMrpRow.materialName === row.materialName) {
+      setSwapMrpRow(null);
+      return;
+    }
+    if (e?.currentTarget) {
+      setSwapPopoverPos(computePopoverPosition(e.currentTarget));
+    }
+    setSwapMrpRow(row);
+    setSwapSearch('');
+  };
+
+  const handleSelectMrpSubstituteIngredient = async (newRm) => {
+    if (!swapMrpRow || !newRm) return;
+    const targetRow = swapMrpRow;
+    setSwapMrpRow(null);
+    setSwapSearch('');
+
+    const oldNameLower = (targetRow.materialName || '').trim().toLowerCase();
+    const oldRmId = targetRow.rawMaterialId ? String(targetRow.rawMaterialId) : null;
+
+    if (
+      (oldRmId && String(newRm._id) === oldRmId) ||
+      newRm.name.trim().toLowerCase() === oldNameLower
+    ) {
+      return;
+    }
+
+    // Identify recipes involved in this MRP row
+    const involvedRecipeIds = new Set(
+      (targetRow.recipeIdsInvolved || [])
+        .concat((targetRow.ordersInvolved || []).map((o) => o.recipeId))
+        .filter(Boolean)
+        .map(String)
+    );
+    const involvedProductNames = new Set(
+      (targetRow.ordersInvolved || [])
+        .map((o) => (o.productName || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    const doesIngMatch = (ing) =>
+      (oldRmId && ing.rawMaterial && String(ing.rawMaterial) === oldRmId) ||
+      (ing.materialName || '').trim().toLowerCase() === oldNameLower;
+
+    let candidateRecipes = recipes.filter((rec) => {
+      if (!Array.isArray(rec.ingredients) || !rec.ingredients.some(doesIngMatch)) return false;
+      if (involvedRecipeIds.size > 0 && involvedRecipeIds.has(String(rec._id))) return true;
+      if (
+        involvedProductNames.size > 0 &&
+        involvedProductNames.has((rec.productName || '').trim().toLowerCase())
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    // Fallback: if no specific recipe IDs matched, update any recipe containing this ingredient
+    if (candidateRecipes.length === 0) {
+      candidateRecipes = recipes.filter(
+        (rec) => Array.isArray(rec.ingredients) && rec.ingredients.some(doesIngMatch)
+      );
+    }
+
+    try {
+      setCalculating(true);
+      if (candidateRecipes.length > 0) {
+        const updatedRecipeMap = new Map();
+        await Promise.all(
+          candidateRecipes.map(async (rec) => {
+            const updatedIngredients = rec.ingredients.map((ing) =>
+              doesIngMatch(ing)
+                ? {
+                    ...ing,
+                    rawMaterial: newRm._id,
+                    materialName: newRm.name,
+                    materialCode: newRm.code || '',
+                    storageType: newRm.storageType || ing.storageType || 'Ambient'
+                  }
+                : ing
+            );
+            const res = await apiConnector(
+              `${INVENTORY_MRP_URL}/recipes/${rec._id}`,
+              'PUT',
+              { ingredients: updatedIngredients }
+            );
+            updatedRecipeMap.set(
+              String(rec._id),
+              res?.data?.data || { ...rec, ingredients: updatedIngredients }
+            );
+          })
+        );
+
+        setRecipes((prev) =>
+          prev.map((r) => updatedRecipeMap.get(String(r._id)) || r)
+        );
+      }
+
+      if (selectedItems.has(targetRow.materialName)) {
+        const nextSel = new Set(selectedItems);
+        nextSel.delete(targetRow.materialName);
+        nextSel.add(newRm.name);
+        setSelectedItems(nextSel);
+      }
+
+      await runMrpCalculation();
+    } catch (err) {
+      console.error('Failed to swap MRP ingredient:', err);
+      toast.error('Failed to update recipe ingredient for MRP matrix');
     } finally {
       setCalculating(false);
     }
@@ -2306,7 +2484,17 @@ const PurchasePlanner = () => {
                           />
                         </td>
                         <td className="py-4 px-4 font-medium text-white">
-                          <div>{row.materialName}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span>{row.materialName}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => openMrpIngredientSwapModal(row, e)}
+                              title="Change ingredient from Live Stock Ledger (updates recipe & recalculates matrix)"
+                              className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-primary transition-colors"
+                            >
+                              <Scale className="w-3 h-3" />
+                            </button>
+                          </div>
                           {variants.length > 1 && (
                             <div className="mt-1 flex items-center gap-1.5">
                               <span className="text-[10px] text-primary font-semibold">Variant:</span>
@@ -3979,6 +4167,134 @@ const PurchasePlanner = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* MINI POPOVER BESIDE MATERIAL: Change / Substitute Ingredient in Live Requirement & Shortage Matrix */}
+      {swapMrpRow && (
+        <>
+          {/* Transparent click-away layer (no screen blur or dark overlay) */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setSwapMrpRow(null)}
+          />
+          <div
+            style={{
+              top: `${swapPopoverPos.top}px`,
+              left: `${swapPopoverPos.left}px`,
+              width: `${swapPopoverPos.width}px`,
+              maxHeight: 'calc(100vh - 110px)'
+            }}
+            className="fixed z-50 bg-[#141418] border border-white/20 rounded-xl p-3 shadow-2xl space-y-2.5 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-white/10 pb-2">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Scale className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="truncate">Swap: {swapMrpRow.materialName}</span>
+                </h3>
+                <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                  Updates recipe &bull; Recalculates shortage matrix
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSwapMrpRow(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Search stock ledger..."
+                value={swapSearch}
+                onChange={(e) => setSwapSearch(e.target.value)}
+                className="w-full bg-black border border-white/15 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Scrollable Live Stock Ledger Ingredients List */}
+            <div className="max-h-52 overflow-y-auto divide-y divide-white/5 border border-white/10 rounded-lg bg-black/60">
+              {rawMaterials
+                .filter((rm) => {
+                  if (!swapSearch.trim()) return true;
+                  const q = swapSearch.trim().toLowerCase();
+                  return (
+                    (rm.name && rm.name.toLowerCase().includes(q)) ||
+                    (rm.code && rm.code.toLowerCase().includes(q)) ||
+                    (rm.baseUnit && rm.baseUnit.toLowerCase().includes(q)) ||
+                    (rm.storageType && rm.storageType.toLowerCase().includes(q))
+                  );
+                })
+                .map((rm) => {
+                  const isCurrent =
+                    (swapMrpRow.rawMaterialId && String(rm._id) === String(swapMrpRow.rawMaterialId)) ||
+                    rm.name.trim().toLowerCase() === (swapMrpRow.materialName || '').trim().toLowerCase();
+                  const variants = getMaterialVariants(rm);
+                  const isNonStd = isNonStandardUnit(rm.baseUnit) && variants.length > 0;
+                  const primaryKg = isNonStd ? variants[0] : 0;
+
+                  return (
+                    <button
+                      key={rm._id}
+                      type="button"
+                      onClick={() => handleSelectMrpSubstituteIngredient(rm)}
+                      className={`w-full text-left px-2.5 py-2 flex items-center justify-between gap-2 transition-colors ${
+                        isCurrent
+                          ? 'bg-primary/15 text-primary'
+                          : 'hover:bg-white/10 text-gray-200'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold truncate flex items-center gap-1">
+                          <span className="truncate">{rm.name}</span>
+                          {isCurrent && (
+                            <span className="px-1 py-0.2 rounded text-[8px] font-mono bg-white/10 text-gray-300 shrink-0">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-gray-400">
+                          <span className="inline-flex items-center gap-0.5">
+                            {rm.storageType === 'Cold' ? (
+                              <ThermometerSnowflake className="w-2.5 h-2.5 text-cyan-400" />
+                            ) : (
+                              <Package className="w-2.5 h-2.5 text-amber-400" />
+                            )}
+                            {rm.storageType || 'Ambient'}
+                          </span>
+                          {isNonStd && (
+                            <span className="text-emerald-400 font-mono truncate">
+                              ({variants.map((v) => `${format3Decimals(v)}kg`).join('/')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 font-mono">
+                        <div className="text-[11px] font-bold text-cyan-300">
+                          {isNonStd
+                            ? `${format3Decimals((rm.currentStock || 0) * primaryKg)} kg`
+                            : `${format3Decimals(rm.currentStock || 0)} ${rm.baseUnit || 'kg'}`}
+                        </div>
+                        {isNonStd && (
+                          <div className="text-[9px] text-gray-400">
+                            {format3Decimals(rm.currentStock || 0)} {rm.baseUnit}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

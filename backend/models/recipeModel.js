@@ -36,6 +36,30 @@ const recipeIngredientSchema = new mongoose.Schema({
     notes: {
         type: String,
         default: ''
+    },
+    ingredientHistory: {
+        type: [
+            {
+                rawMaterial: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'RawMaterial'
+                },
+                materialName: {
+                    type: String,
+                    trim: true
+                },
+                materialCode: {
+                    type: String,
+                    default: '',
+                    trim: true
+                },
+                storageType: {
+                    type: String,
+                    default: 'Ambient'
+                }
+            }
+        ],
+        default: []
     }
 });
 
